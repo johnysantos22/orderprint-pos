@@ -83,11 +83,10 @@ Ele faz requisições `POST` para `http://localhost:3333/print`. Para que isso f
 
 ## 🛡️ Segurança
 
-As senhas padrão iniciais para o primeiro acesso ao sistema (antes da configuração via Firebase) são:
-- **Caixa:** `1234`
-- **Garçom:** `5566`
+O sistema conta com controle de acesso restrito por PIN para as operações de Caixa e Garçom. 
+Para o primeiro acesso (antes da configuração no Firebase), consulte o administrador do sistema para obter as credenciais de acesso iniciais.
 
-*(É recomendado alterar estas senhas na aba "Configurações > Senhas" logo no primeiro login).*
+*(É altamente recomendado alterar as senhas provisórias na aba "Configurações > Senhas" logo no primeiro login por questões de segurança).*
 
 ---
 *Desenvolvido com ❤️ para modernizar o atendimento de pizzarias.*
