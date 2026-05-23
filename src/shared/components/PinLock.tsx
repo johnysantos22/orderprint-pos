@@ -26,7 +26,7 @@ export function PinLock({ children, correctPin, title }: PinLockProps) {
 
   // Permite apertar a tecla "Enter" para entrar sem precisar clicar no botão
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (e.key === "Enter") {
       handleUnlock();
     }
   };

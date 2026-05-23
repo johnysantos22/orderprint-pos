@@ -1,7 +1,6 @@
-import { createRouter, useRouter } from "@tanstack/react-router";
-import { routeTree } from "./routeTree.gen";
+import { useRouter } from "@tanstack/react-router";
 
-function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+export function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
 
   return (
@@ -53,15 +52,3 @@ function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => vo
     </div>
   );
 }
-
-export const getRouter = () => {
-  const router = createRouter({
-    routeTree,
-    context: {},
-    scrollRestoration: true,
-    defaultPreloadStaleTime: 0,
-    defaultErrorComponent: DefaultErrorComponent,
-  });
-
-  return router;
-};

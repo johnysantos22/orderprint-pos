@@ -188,8 +188,7 @@ const server = createServer(async (request, response) => {
       const body = await readBody(request);
       const payload = JSON.parse(body);
       const text = typeof payload.text === "string" ? payload.text : "";
-      const printerName =
-        typeof payload.printerName === "string" ? payload.printerName.trim() : "";
+      const printerName = typeof payload.printerName === "string" ? payload.printerName.trim() : "";
 
       if (!text.trim()) {
         sendJson(response, 400, { ok: false, error: "Texto do cupom vazio." });

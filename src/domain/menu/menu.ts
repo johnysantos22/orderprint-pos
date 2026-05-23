@@ -135,13 +135,16 @@ export const pasteis: MenuItem[] = [
   { id: 23, name: "Mussarela", description: "Acompanha Queijo Mussarela", price: 10 },
   { id: 24, name: "Quatro Queijo", description: "Acompanha Queijo Mussarela", price: 10 },
   { id: 25, name: "Chocolate", description: "Acompanha Queijo Mussarela", price: 10 },
-  { id: 26, name: "Misto (Presunto e queijo)", description: "Acompanha Queijo Mussarela", price: 10 },
+  {
+    id: 26,
+    name: "Misto (Presunto e queijo)",
+    description: "Acompanha Queijo Mussarela",
+    price: 10,
+  },
   { id: 27, name: "Frango com Cheddar", description: "Acompanha Queijo Mussarela", price: 10 },
 ];
 
-export const porcoes: MenuItem[] = [
-  { id: 28, name: "Batata frita (G)", price: 20 },
-];
+export const porcoes: MenuItem[] = [{ id: 28, name: "Batata frita (G)", price: 20 }];
 
 export const bebidas: MenuItem[] = [
   { id: 29, name: "Água 500ml", price: 3.0 },

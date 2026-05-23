@@ -25,19 +25,38 @@ export function OrderTicket({ items, total, waiter, table, notes, orderNumber }:
       <div className="t-center t-bold t-lg">PIZZARIA 2 IRMÃOS</div>
       <div className="t-center t-sm">Tel: (84) 99813-5262</div>
       <div className="t-divider">================================</div>
-      <div className="t-row"><span>Pedido Nº:</span><span className="t-bold">#{String(orderNumber).padStart(4, "0")}</span></div>
-      <div className="t-row"><span>Data:</span><span>{date} {time}</span></div>
-      <div className="t-row"><span>Mesa:</span><span className="t-bold t-lg">{table || "-"}</span></div>
-      {waiter && <div className="t-row"><span>Garçom:</span><span>{waiter}</span></div>}
+      <div className="t-row">
+        <span>Pedido Nº:</span>
+        <span className="t-bold">#{String(orderNumber).padStart(4, "0")}</span>
+      </div>
+      <div className="t-row">
+        <span>Data:</span>
+        <span>
+          {date} {time}
+        </span>
+      </div>
+      <div className="t-row">
+        <span>Mesa:</span>
+        <span className="t-bold t-lg">{table || "-"}</span>
+      </div>
+      {waiter && (
+        <div className="t-row">
+          <span>Garçom:</span>
+          <span>{waiter}</span>
+        </div>
+      )}
       <div className="t-divider">--------------------------------</div>
       <div className="t-bold">ITENS:</div>
       {items.map((i) => (
         <div key={i.key} className="t-item">
           <div className="t-row">
-            <span>{i.qty}x {i.name}{i.size ? ` (${i.size})` : ""}</span>
+            <span>
+              {i.qty}x {i.name}
+              {i.size ? ` (${i.size})` : ""}
+            </span>
             <span>R$ {(i.unitPrice * i.qty).toFixed(2)}</span>
           </div>
-          <div className="t-sm t-muted">  un: R$ {i.unitPrice.toFixed(2)}</div>
+          <div className="t-sm t-muted"> un: R$ {i.unitPrice.toFixed(2)}</div>
         </div>
       ))}
       <div className="t-divider">--------------------------------</div>

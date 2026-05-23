@@ -1,16 +1,16 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import tsconfigPaths from 'vite-tsconfig-paths';
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tsconfigPaths from "vite-tsconfig-paths";
 // 1. Mudamos o nome aqui no import:
-import { tanstackRouter } from '@tanstack/router-plugin/vite';
-import tailwindcss from '@tailwindcss/vite';
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-    plugins: [
-        tailwindcss(),
-        // 2. E mudamos o nome aqui na chamada do plugin:
-        tanstackRouter(),
-        react(),
-        tsconfigPaths(),
-    ],
+  plugins: [
+    tailwindcss(),
+    // 2. E mudamos o nome aqui na chamada do plugin:
+    tanstackRouter(),
+    react(),
+    tsconfigPaths(),
+  ],
 });
