@@ -89,9 +89,10 @@ export interface Pedido {
   observacoes?: string;
   mesa?: string;
   garcom?: string;
-  cliente?: { nome: string; endereco?: string };
+  cliente?: { nome: string; endereco?: string; telefone?: string };
   tipoEntrega?: string;
   status?: string;
+  telefone?: string;
 }
 
 function CaixaPage() {
@@ -466,7 +467,6 @@ function CaixaPage() {
     }
   };
 
-  // FUNÇÃO ADICIONADA PARA CORRIGIR O ERRO TS(2304)
   const abrirModalEdicao = (pedido: Pedido) => {
     setDraftPedidoEdicao(JSON.parse(JSON.stringify(pedido)));
   };
@@ -489,6 +489,64 @@ function CaixaPage() {
       const sub = novos.reduce((acc, i) => acc + i.precoUnitario * i.quantidade, 0);
       return { ...prev, itens: novos, subtotal: sub, total: sub + (prev.taxaEntrega || 0) };
     });
+  };
+
+  const alterarStatusEAvisarCliente = async (pedido: Pedido, novoStatus: string) => {
+    try {
+      await updateDoc(doc(db, "pedidos", pedido.id), { status: novoStatus });
+      setAlerta({
+        titulo: "Status Atualizado",
+        mensagem: `O pedido avançou para: ${novoStatus === "em_preparo" ? "Em Preparo" : novoStatus === "em_rota" ? "Saiu para Entrega" : "Pronto para Retirada"}`,
+        tipo: "sucesso",
+      });
+
+      // Pega o telefone e garante que só tem números
+      let telefoneCliente = pedido.telefone || pedido.cliente?.telefone;
+
+      if (telefoneCliente) {
+        telefoneCliente = telefoneCliente.replace(/\D/g, ''); // Tira traços e espaços
+
+        // Se o cliente não digitou o 55 do Brasil, nós adicionamos
+        if (!telefoneCliente.startsWith('55')) {
+          telefoneCliente = '55' + telefoneCliente;
+        }
+
+        const nomeCliente = pedido.cliente?.nome || "Cliente";
+        let mensagem = "";
+
+        if (novoStatus === "em_preparo") {
+          if (pedido.tipoEntrega === "RETIRAR") {
+            mensagem = `Olá ${nomeCliente}! 🍕 Seu pedido já está na cozinha sendo preparado com muito carinho. Avisaremos quando estiver pronto para retirada!`;
+          } else {
+            mensagem = `Olá ${nomeCliente}!  Seu pedido já está na cozinha sendo preparado com muito carinho. Avisaremos quando sair para entrega!`;
+          }
+        } else if (novoStatus === "em_rota") {
+          mensagem = `Oba, ${nomeCliente}! 🛵 Seu pedido acabou de sair para entrega. Fique de olho, nosso entregador está chegando!`;
+        } else if (novoStatus === "pronto") {
+          mensagem = `Olá ${nomeCliente}! 🛍️ Seu pedido já está pronto e embalado, te esperando para retirada no balcão!`;
+        }
+
+        // Disparo via Proxy do Vite direto para o Google Cloud
+        await fetch("/evolution-api/message/sendText/Pizzaria2Irmaos", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": "minha-senha-secreta-123"
+          },
+          body: JSON.stringify({
+            number: telefoneCliente,
+            text: mensagem
+          }),
+        });
+
+      }
+    } catch (error) {
+      setAlerta({
+        titulo: "Erro",
+        mensagem: "Não foi possível alterar o status do pedido.",
+        tipo: "erro",
+      });
+    }
   };
 
   const handleSalvarEdicaoItens = async () => {
@@ -518,14 +576,18 @@ function CaixaPage() {
       <style>{`
         #cupom-impressao { display: none; }
         @media print {
-          @page { size: 58mm auto; margin: 2mm; }
-          html, body { background: #fff !important; color: #000 !important; }
+          @page { size: 58mm auto; margin: 0; }
+          html, body { background: #fff !important; color: #000 !important; margin: 0; padding: 0; }
           .caixa-layout { display: none !important; }
-          #cupom-impressao { display: block !important; width: 48mm; margin: 0 auto; color: #000; font-family: monospace; font-size: 8pt; padding-bottom: 18mm; }
-          #cupom-impressao .linha { display: flex; justify-content: space-between; gap: 8px; }
-          #cupom-impressao .centro { text-align: center; }
+          #cupom-impressao { display: block !important; width: 52mm; margin: 0 auto; color: #000; font-family: 'Courier New', Courier, monospace; font-size: 10pt; padding: 2mm; padding-bottom: 10mm; }
+          #cupom-impressao img { width: 45px; height: 45px; margin: 0 auto 5px; display: block; filter: grayscale(100%) contrast(1.2); }
+          #cupom-impressao .linha { display: flex; justify-content: space-between; gap: 5px; align-items: flex-start; margin-bottom: 3px; }
+          #cupom-impressao .linha > span:first-child { flex: 1; word-break: break-word; line-height: 1.1; }
+          #cupom-impressao .linha > span:last-child { white-space: nowrap; flex-shrink: 0; font-weight: bold; text-align: right; }
+          #cupom-impressao .centro { text-align: center; line-height: 1.2; }
           #cupom-impressao .forte { font-weight: 800; }
-          #cupom-impressao .divisor { margin: 5px 0; text-align: center; white-space: pre; }
+          #cupom-impressao .divisor-igual { border-top: 3px double #000; margin: 6px 0; }
+          #cupom-impressao .divisor-traco { border-top: 1px dashed #000; margin: 6px 0; }
         }
       `}</style>
 
@@ -673,9 +735,21 @@ function CaixaPage() {
                             Pedido #{p.id.slice(0, 6).toUpperCase()}
                           </span>
                           <span
-                            className={`text-[10px] md:text-xs font-black uppercase px-2 py-1 rounded-md ${p.impresso ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700 animate-pulse ring-1 ring-orange-300"}`}
+                            className={`text-[10px] md:text-xs font-black uppercase px-2 py-1 rounded-md ${p.status === "em_preparo"
+                              ? "bg-yellow-100 text-yellow-700"
+                              : p.status === "em_rota"
+                                ? "bg-blue-100 text-blue-700"
+                                : p.status === "pronto"
+                                  ? "bg-green-100 text-green-700"
+                                  : p.impresso
+                                    ? "bg-zinc-100 text-zinc-700"
+                                    : "bg-orange-100 text-orange-700 animate-pulse ring-1 ring-orange-300"
+                              }`}
                           >
-                            {p.impresso ? "Impresso" : "Pendente"}
+                            {p.status === "em_preparo" ? "🍕 Em Preparo" :
+                              p.status === "em_rota" ? "🛵 Em Rota" :
+                                p.status === "pronto" ? "🛍️ Pronto" :
+                                  p.impresso ? "🖨️ Impresso" : "Aguardando"}
                           </span>
                         </div>
                         <div className="flex gap-1.5 md:gap-2">
@@ -735,6 +809,37 @@ function CaixaPage() {
                               <AlertTriangle size={14} /> Observações
                             </p>
                             <p className="text-xs md:text-sm font-bold text-yellow-900">{p.observacoes}</p>
+                          </div>
+                        )}
+
+                        {p.tipoEntrega && p.tipoEntrega !== "NO_LOCAL" && (
+                          <div className="mt-4 pt-4 border-t border-border flex flex-wrap gap-2">
+                            {(!p.status || p.status === "pendente") && (
+                              <button
+                                onClick={() => alterarStatusEAvisarCliente(p, "em_preparo")}
+                                className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-xs md:text-sm font-black uppercase transition-colors shadow-sm"
+                              >
+                                🍕 Iniciar Preparo
+                              </button>
+                            )}
+
+                            {p.status === "em_preparo" && p.tipoEntrega === "ENTREGAR" && (
+                              <button
+                                onClick={() => alterarStatusEAvisarCliente(p, "em_rota")}
+                                className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs md:text-sm font-black uppercase transition-colors shadow-sm"
+                              >
+                                🛵 Saiu p/ Entrega
+                              </button>
+                            )}
+
+                            {p.status === "em_preparo" && p.tipoEntrega === "RETIRAR" && (
+                              <button
+                                onClick={() => alterarStatusEAvisarCliente(p, "pronto")}
+                                className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs md:text-sm font-black uppercase transition-colors shadow-sm"
+                              >
+                                🛍️ Pronto p/ Retirar
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1069,9 +1174,21 @@ function CaixaPage() {
                               </span>
                             ) : (
                               <span
-                                className={`rounded-md px-2 py-1 text-[10px] font-black uppercase ${p.impresso ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700 animate-pulse ring-1 ring-orange-300"}`}
+                                className={`rounded-md px-2 py-1 text-[10px] font-black uppercase ${p.status === "em_preparo"
+                                  ? "bg-yellow-100 text-yellow-700"
+                                  : p.status === "em_rota"
+                                    ? "bg-blue-100 text-blue-700"
+                                    : p.status === "pronto"
+                                      ? "bg-green-100 text-green-700"
+                                      : p.impresso
+                                        ? "bg-zinc-100 text-zinc-700"
+                                        : "bg-orange-100 text-orange-700 animate-pulse ring-1 ring-orange-300"
+                                  }`}
                               >
-                                {p.impresso ? "Aberto (Impresso)" : "Aberto (Pendente)"}
+                                {p.status === "em_preparo" ? "🍕 Em Preparo" :
+                                  p.status === "em_rota" ? "🛵 Em Rota" :
+                                    p.status === "pronto" ? "🛍️ Pronto" :
+                                      p.impresso ? "🖨️ Impresso" : "Aberto (Pendente)"}
                               </span>
                             )}
                           </div>
@@ -1240,11 +1357,14 @@ function CaixaPage() {
       <div id="cupom-impressao" aria-hidden={!pedidoParaImprimir}>
         {pedidoParaImprimir && (
           <>
-            <div className="centro forte" style={{ fontSize: "14pt" }}>
+            <div className="centro">
+              <img src={logo} alt="Logo" />
+            </div>
+            <div className="centro forte" style={{ fontSize: "13pt", marginBottom: "2px" }}>
               PIZZARIA 2 IRMÃOS
             </div>
-            <div className="centro">Tel: (84) 99813-5262</div>
-            <div className="divisor">================================</div>
+            <div className="centro" style={{ fontSize: "9pt" }}>Tel: (84) 99813-5262</div>
+            <div className="divisor-igual"></div>
             <div className="linha">
               <span>Pedido:</span>
               <span className="forte">#{pedidoParaImprimir.id.slice(0, 8).toUpperCase()}</span>
@@ -1254,21 +1374,21 @@ function CaixaPage() {
               <span>{formatDateTime(pedidoParaImprimir.data)}</span>
             </div>
             <div className="linha">
-              <span>Origem:</span>
-              <span className="forte">{pedidoParaImprimir.origem}</span>
+              <span style={{ flex: "0 0 auto", paddingRight: "8px" }}>Origem:</span>
+              <span className="forte" style={{ whiteSpace: "normal", flex: "1 1 auto", wordBreak: "break-word", textAlign: "right" }}>{pedidoParaImprimir.origem}</span>
             </div>
-            <div className="divisor">--------------------------------</div>
-            <div className="forte">ITENS</div>
+            <div className="divisor-traco"></div>
+            <div className="forte" style={{ marginBottom: "4px" }}>ITENS</div>
             {pedidoParaImprimir.itens.map((i) => (
               <div key={i.key} className="linha">
                 <span>
-                  {i.quantidade}x {i.nome}
+                  {i.quantidade}x {i.nome} {i.tamanho && `(${i.tamanho})`}
                 </span>
                 <span>{formatCurrency(i.precoUnitario * i.quantidade)}</span>
               </div>
             ))}
-            <div className="divisor">--------------------------------</div>
-            <div className="linha forte" style={{ fontSize: "13pt" }}>
+            <div className="divisor-traco"></div>
+            <div className="linha forte" style={{ fontSize: "13pt", marginTop: "4px" }}>
               <span>TOTAL:</span>
               <span>{formatCurrency(pedidoParaImprimir.total)}</span>
             </div>

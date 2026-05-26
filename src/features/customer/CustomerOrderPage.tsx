@@ -18,6 +18,7 @@ import {
   Trash2,
   UserRound,
   AlertTriangle,
+  X,
 } from "lucide-react";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { db } from "@/services/firebase";
@@ -47,6 +48,7 @@ export interface Pedido {
   cliente: {
     nome: string;
     endereco: string;
+    telefone: string;
   };
   tipoEntrega: TipoEntrega;
   pagamento: FormaPagamento;
@@ -60,7 +62,7 @@ export interface Pedido {
 }
 
 const CLIENT_DRAFT_KEY = "cliente-carrinho-rascunho";
-const PIX_KEY = "84998135262";
+const PIX_KEY = "460c389b-9041-4124-884f-01fef2e316e6";
 const CASHIER_WHATSAPP = "5584998135262";
 const SUCO_AO_LEITE_ACRESCIMO = 1;
 const tamanhosPizza: PizzaSize[] = ["M", "G", "GG"];
@@ -78,12 +80,12 @@ const opcoesEntrega: {
   label: string;
   detalhe: string;
   taxa: number;
-  icon: React.ElementType; // CORREÇÃO PARA O TIPO DO ÍCONE
+  icon: React.ElementType;
 }[] = [
-  { value: "NO_LOCAL", label: "No Local", detalhe: "Grátis", taxa: 0, icon: Store },
-  { value: "RETIRAR", label: "Retirar", detalhe: "Grátis", taxa: 0, icon: PackageCheck },
-  { value: "ENTREGAR", label: "Entregar", detalhe: "+ R$ 5,00", taxa: 5, icon: Bike },
-];
+    { value: "NO_LOCAL", label: "No Local", detalhe: "Grátis", taxa: 0, icon: Store },
+    { value: "RETIRAR", label: "Retirar", detalhe: "Grátis", taxa: 0, icon: PackageCheck },
+    { value: "ENTREGAR", label: "Entregar", detalhe: "+ R$ 5,00", taxa: 5, icon: Bike },
+  ];
 
 const formasPagamento: FormaPagamento[] = ["PIX", "Crédito", "Débito"];
 
@@ -91,6 +93,7 @@ interface ClienteDraft {
   tab: Categoria;
   carrinho: ItemCarrinho[];
   nome: string;
+  telefone: string;
   endereco: string;
   observacoes: string;
   tipoEntrega: TipoEntrega;
@@ -104,6 +107,7 @@ const clienteDraftDefault: ClienteDraft = {
   tab: "pizzas",
   carrinho: [],
   nome: "",
+  telefone: "",
   endereco: "",
   observacoes: "",
   tipoEntrega: "NO_LOCAL",
@@ -137,6 +141,7 @@ export function CustomerOrderPage() {
   const [tab, setTab] = useState<Categoria>(rascunhoInicial.tab);
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>(rascunhoInicial.carrinho);
   const [nome, setNome] = useState(rascunhoInicial.nome);
+  const [telefone, setTelefone] = useState(rascunhoInicial.telefone);
   const [endereco, setEndereco] = useState(rascunhoInicial.endereco);
   const [observacoes, setObservacoes] = useState(rascunhoInicial.observacoes);
   const [tipoEntrega, setTipoEntrega] = useState<TipoEntrega>(rascunhoInicial.tipoEntrega);
@@ -148,6 +153,7 @@ export function CustomerOrderPage() {
   const [meiaSaborB, setMeiaSaborB] = useState(rascunhoInicial.meiaSaborB);
   const [mensagemCarrinho, setMensagemCarrinho] = useState("");
   const [modalSucessoAberto, setModalSucessoAberto] = useState(false);
+  const [modalCarrinhoAberto, setModalCarrinhoAberto] = useState(false);
 
   // ESTADO DA LOJA E ESTOQUE
   const [lojaAberta, setLojaAberta] = useState(true);
@@ -156,7 +162,7 @@ export function CustomerOrderPage() {
   );
   const [esgotados, setEsgotados] = useState<number[]>([]);
 
-  // ESTADO DE ALERTA GLOBAL (Substituindo alerts nativos)
+  // ESTADO DE ALERTA GLOBAL
   const [alerta, setAlerta] = useState<{
     titulo: string;
     mensagem: string;
@@ -173,9 +179,11 @@ export function CustomerOrderPage() {
   const taxaEntrega = opcoesEntrega.find((opcao) => opcao.value === tipoEntrega)?.taxa ?? 0;
   const total = subtotal + taxaEntrega;
   const enderecoObrigatorio = tipoEntrega === "ENTREGAR";
+
   const dadosConferenciaOk =
     carrinho.length > 0 &&
     nome.trim().length > 0 &&
+    (tipoEntrega === "NO_LOCAL" || telefone.replace(/\D/g, "").length >= 10) &&
     (!enderecoObrigatorio || endereco.trim().length > 0);
 
   useEffect(() => {
@@ -183,6 +191,7 @@ export function CustomerOrderPage() {
       tab,
       carrinho,
       nome,
+      telefone,
       endereco,
       observacoes,
       tipoEntrega,
@@ -195,6 +204,7 @@ export function CustomerOrderPage() {
   }, [
     carrinho,
     endereco,
+    telefone,
     formaPagamento,
     meiaSaborA,
     meiaSaborB,
@@ -261,6 +271,7 @@ export function CustomerOrderPage() {
       "Segue meu comprovante de PIX para conferência do pedido.",
       "",
       `Cliente: ${nome.trim() || "Não informado"}`,
+      `WhatsApp: ${telefone.trim() || "Não informado"}`,
       `Entrega: ${entregaSelecionada}`,
       `Endereço: ${endereco.trim() || "Não informado"}`,
       `Pagamento: PIX`,
@@ -276,7 +287,7 @@ export function CustomerOrderPage() {
     ]
       .filter(Boolean)
       .join("\n");
-  }, [endereco, itensResumoWhatsApp, nome, observacoes, subtotal, taxaEntrega, tipoEntrega, total]);
+  }, [endereco, telefone, itensResumoWhatsApp, nome, observacoes, subtotal, taxaEntrega, tipoEntrega, total]);
 
   const whatsappLink = `https://wa.me/${CASHIER_WHATSAPP}?text=${encodeURIComponent(mensagemWhatsApp)}`;
 
@@ -306,7 +317,7 @@ export function CustomerOrderPage() {
       setAlerta({
         titulo: "Atenção",
         mensagem:
-          "Preencha nome, carrinho e endereço (se for entrega) antes de enviar o comprovante.",
+          "Preencha nome, WhatsApp válido e endereço (se for entrega) antes de enviar o comprovante.",
         tipo: "erro",
       });
       return;
@@ -399,6 +410,185 @@ export function CustomerOrderPage() {
     });
   };
 
+  const conteudoCarrinho = (isModal: boolean) => (
+    <section className={`flex flex-col border-primary bg-card ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2 overflow-hidden" : "rounded-lg border-2 shadow-[var(--shadow-warm)]"}`}>
+      <div className={`flex items-center justify-between gap-3 bg-primary px-4 py-3 text-primary-foreground ${isModal ? "shrink-0" : "border-b border-border"}`}>
+        <h2 className="flex items-center gap-2 text-lg font-black uppercase">
+          <ShoppingCart size={20} aria-hidden="true" />
+          Carrinho
+        </h2>
+        <div className="flex items-center gap-3">
+          <span className="rounded-lg bg-primary-foreground/15 px-3 py-1 text-sm font-black">
+            {carrinho.reduce((totalItens, item) => totalItens + item.quantidade, 0)} itens
+          </span>
+          {isModal && (
+            <button
+              type="button"
+              onClick={() => setModalCarrinhoAberto(false)}
+              className="rounded-full p-1 hover:bg-primary-foreground/20 transition-colors"
+            >
+              <X size={24} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className={`p-3 sm:p-4 space-y-4 ${isModal ? "flex-1 overflow-y-auto" : ""}`}>
+        <div>
+          {carrinho.length === 0 ? (
+            <div className={`grid place-items-center rounded-lg border border-dashed border-border bg-background px-6 text-center ${isModal ? "min-h-32" : "min-h-44"}`}>
+              <p className="text-sm font-semibold text-muted-foreground">
+                Seu carrinho está vazio.
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {carrinho.map((item) => (
+                <li
+                  key={item.key}
+                  className="rounded-lg border border-border bg-background p-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-foreground">
+                        {item.nome}
+                        {item.tamanho && (
+                          <span className="ml-2 text-primary">({item.tamanho})</span>
+                        )}
+                      </p>
+                      <p className="text-xs font-semibold text-muted-foreground">
+                        {formatCurrency(item.precoUnitario)} cada
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removerItem(item.key)}
+                      className="rounded-md p-1 text-destructive transition hover:bg-destructive/10"
+                      aria-label={`Remover ${item.nome}`}
+                    >
+                      <Trash2 size={16} aria-hidden="true" />
+                    </button>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => alterarQuantidade(item.key, -1)}
+                        className="grid h-8 w-8 place-items-center rounded-lg bg-secondary font-black text-secondary-foreground transition hover:bg-primary hover:text-primary-foreground"
+                        aria-label={`Diminuir ${item.nome}`}
+                      >
+                        <Minus size={16} aria-hidden="true" />
+                      </button>
+                      <span className="w-7 text-center text-sm font-black">
+                        {item.quantidade}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => alterarQuantidade(item.key, 1)}
+                        className="grid h-8 w-8 place-items-center rounded-lg bg-primary font-black text-primary-foreground transition hover:bg-[var(--brand-red-dark)]"
+                        aria-label={`Aumentar ${item.nome}`}
+                      >
+                        <Plus size={16} aria-hidden="true" />
+                      </button>
+                    </div>
+                    <strong className="text-sm font-black text-primary">
+                      {formatCurrency(item.precoUnitario * item.quantidade)}
+                    </strong>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <label className="block space-y-2">
+          <span className="text-sm font-bold text-foreground">Observações</span>
+          <textarea
+            value={observacoes}
+            onChange={(event) => setObservacoes(event.target.value)}
+            rows={2}
+            className="w-full resize-none rounded-lg border border-border bg-background p-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
+            placeholder="Ex.: sem cebola, pouco orégano, troco para R$ 100"
+          />
+        </label>
+
+        {formaPagamento === "PIX" && (
+          <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-green-950">
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-black uppercase text-green-800">Pagamento PIX</p>
+                <p className="text-xs font-semibold text-green-700">
+                  Copie a chave e envie o comprovante para o caixa conferir.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-white p-2">
+              <code className="flex-1 break-all text-sm font-black text-green-900">
+                {PIX_KEY}
+              </code>
+              <button
+                type="button"
+                onClick={copiarPix}
+                className="flex h-9 items-center gap-2 rounded-lg bg-green-700 px-3 text-xs font-black uppercase text-white transition hover:bg-green-800"
+              >
+                <Copy size={15} aria-hidden="true" />
+                Copiar
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={abrirWhatsAppComprovante}
+              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#25D366] px-3 text-sm font-black uppercase text-white transition hover:bg-[#1fb458]"
+            >
+              <MessageCircle size={17} aria-hidden="true" />
+              Enviar comprovante
+            </button>
+          </div>
+        )}
+
+        <div className="space-y-2 rounded-lg bg-background border border-border p-3">
+          <div className="flex justify-between text-sm font-bold text-muted-foreground">
+            <span>Subtotal</span>
+            <span>{formatCurrency(subtotal)}</span>
+          </div>
+          <div className="flex justify-between text-sm font-bold text-muted-foreground">
+            <span>Entrega</span>
+            <span>{formatCurrency(taxaEntrega)}</span>
+          </div>
+          <div className="flex justify-between border-t border-border pt-2 text-xl font-black text-primary">
+            <span>Total</span>
+            <span>{formatCurrency(total)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className={`border-t border-border bg-background p-4 ${isModal ? "shrink-0" : ""}`}>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setCarrinho([])}
+            disabled={carrinho.length === 0}
+            className="rounded-lg border border-border bg-background py-3 text-sm font-black uppercase text-foreground transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            Limpar
+          </button>
+          <button
+            type="button"
+            onClick={finalizarPedido}
+            disabled={!dadosConferenciaOk || !lojaAberta}
+            className="flex items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black uppercase text-primary-foreground shadow-[var(--shadow-warm)] transition hover:bg-[var(--brand-red-dark)] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <ReceiptText size={17} aria-hidden="true" />
+            {lojaAberta ? "Finalizar" : "Fechado"}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+
   const finalizarPedido = async () => {
     if (!lojaAberta) {
       setAlerta({
@@ -419,7 +609,7 @@ export function CustomerOrderPage() {
     if (!dadosConferenciaOk) {
       setAlerta({
         titulo: "Dados Incompletos",
-        mensagem: "Preencha os dados de contato antes de finalizar o pedido.",
+        mensagem: "Preencha os dados de contato corretamente antes de finalizar o pedido.",
         tipo: "erro",
       });
       return;
@@ -430,7 +620,11 @@ export function CustomerOrderPage() {
       id: gerarIdPedido(),
       data: new Date().toISOString(),
       origem: entregaSelecionada?.label ?? "Cliente",
-      cliente: { nome: nome.trim(), endereco: endereco.trim() },
+      cliente: {
+        nome: nome.trim(),
+        endereco: endereco.trim(),
+        telefone: tipoEntrega !== "NO_LOCAL" ? telefone.replace(/\D/g, "") : ""
+      },
       tipoEntrega,
       pagamento: formaPagamento,
       itens: carrinho,
@@ -446,6 +640,7 @@ export function CustomerOrderPage() {
       localStorage.removeItem(CLIENT_DRAFT_KEY);
       setCarrinho([]);
       setObservacoes("");
+      setModalCarrinhoAberto(false);
       setModalSucessoAberto(true);
     } catch (error) {
       console.error("Erro ao salvar pedido:", error);
@@ -525,7 +720,7 @@ export function CustomerOrderPage() {
           className={`space-y-5 transition-all duration-300 ${!lojaAberta ? "pointer-events-none opacity-50 grayscale" : ""}`}
         >
           <section className="rounded-lg border border-border bg-card p-4 shadow-[var(--shadow-card)]">
-            <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <label className="space-y-2">
                 <span className="flex items-center gap-2 text-sm font-bold text-foreground">
                   <UserRound size={16} aria-hidden="true" />
@@ -541,13 +736,29 @@ export function CustomerOrderPage() {
 
               <label className="space-y-2">
                 <span className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <MessageCircle size={16} aria-hidden="true" />
+                  WhatsApp
+                </span>
+                <input
+                  type="tel"
+                  value={telefone}
+                  onChange={(event) => setTelefone(event.target.value)}
+                  disabled={tipoEntrega === "NO_LOCAL"}
+                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10 disabled:opacity-50"
+                  placeholder="(DDD) 99999-9999"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="flex items-center gap-2 text-sm font-bold text-foreground">
                   <MapPin size={16} aria-hidden="true" />
                   Endereço
                 </span>
                 <input
                   value={endereco}
                   onChange={(event) => setEndereco(event.target.value)}
-                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
+                  disabled={tipoEntrega === "NO_LOCAL"}
+                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10 disabled:opacity-50"
                   placeholder="Rua, número, bairro"
                 />
               </label>
@@ -560,7 +771,7 @@ export function CustomerOrderPage() {
                 <select
                   value={formaPagamento}
                   onChange={(event) => setFormaPagamento(event.target.value as FormaPagamento)}
-                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-bold outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10 md:w-36"
+                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-bold outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
                 >
                   {formasPagamento.map((forma) => (
                     <option key={forma} value={forma}>
@@ -581,20 +792,18 @@ export function CustomerOrderPage() {
                     key={opcao.value}
                     type="button"
                     onClick={() => setTipoEntrega(opcao.value)}
-                    className={`flex items-center justify-between rounded-lg border-2 p-3 text-left transition ${
-                      selecionado
-                        ? "border-primary bg-primary text-primary-foreground shadow-[var(--shadow-warm)]"
-                        : "border-border bg-background text-foreground hover:border-primary"
-                    }`}
+                    className={`flex items-center justify-between rounded-lg border-2 p-3 text-left transition ${selecionado
+                      ? "border-primary bg-primary text-primary-foreground shadow-[var(--shadow-warm)]"
+                      : "border-border bg-background text-foreground hover:border-primary"
+                      }`}
                   >
                     <span className="flex items-center gap-3">
                       <Icon size={20} aria-hidden="true" />
                       <span>
                         <span className="block text-sm font-black">{opcao.label}</span>
                         <span
-                          className={`block text-xs font-semibold ${
-                            selecionado ? "text-primary-foreground/85" : "text-muted-foreground"
-                          }`}
+                          className={`block text-xs font-semibold ${selecionado ? "text-primary-foreground/85" : "text-muted-foreground"
+                            }`}
                         >
                           {opcao.detalhe}
                         </span>
@@ -613,11 +822,10 @@ export function CustomerOrderPage() {
                   key={item.id}
                   type="button"
                   onClick={() => setTab(item.id)}
-                  className={`rounded-lg px-4 py-2 text-sm font-black uppercase transition ${
-                    tab === item.id
-                      ? "bg-primary text-primary-foreground shadow-[var(--shadow-warm)]"
-                      : "bg-background text-foreground hover:bg-secondary"
-                  }`}
+                  className={`rounded-lg px-4 py-2 text-sm font-black uppercase transition ${tab === item.id
+                    ? "bg-primary text-primary-foreground shadow-[var(--shadow-warm)]"
+                    : "bg-background text-foreground hover:bg-secondary"
+                    }`}
                 >
                   {item.label}
                 </button>
@@ -882,173 +1090,18 @@ export function CustomerOrderPage() {
         </main>
 
         <aside
-          className={`lg:sticky lg:top-24 lg:self-start transition-all duration-300 ${!lojaAberta ? "pointer-events-none opacity-50 grayscale" : ""}`}
+          className={`hidden lg:block lg:sticky lg:top-24 lg:self-start transition-all duration-300 ${!lojaAberta ? "pointer-events-none opacity-50 grayscale" : ""}`}
         >
-          <section className="flex flex-col rounded-lg border-2 border-primary bg-card shadow-[var(--shadow-warm)]">
-            <div className="flex items-center justify-between gap-3 border-b border-border bg-primary px-4 py-3 text-primary-foreground">
-              <h2 className="flex items-center gap-2 text-lg font-black uppercase">
-                <ShoppingCart size={20} aria-hidden="true" />
-                Carrinho
-              </h2>
-              <span className="rounded-lg bg-primary-foreground/15 px-3 py-1 text-sm font-black">
-                {carrinho.reduce((totalItens, item) => totalItens + item.quantidade, 0)} itens
-              </span>
-            </div>
-
-            <div className="p-2 sm:p-3">
-              {carrinho.length === 0 ? (
-                <div className="grid min-h-44 place-items-center rounded-lg border border-dashed border-border bg-background px-6 text-center">
-                  <p className="text-sm font-semibold text-muted-foreground">
-                    Seu carrinho está vazio.
-                  </p>
-                </div>
-              ) : (
-                <ul className="space-y-2">
-                  {carrinho.map((item) => (
-                    <li
-                      key={item.key}
-                      className="rounded-lg border border-border bg-background p-3"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-black text-foreground">
-                            {item.nome}
-                            {item.tamanho && (
-                              <span className="ml-2 text-primary">({item.tamanho})</span>
-                            )}
-                          </p>
-                          <p className="text-xs font-semibold text-muted-foreground">
-                            {formatCurrency(item.precoUnitario)} cada
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removerItem(item.key)}
-                          className="rounded-md p-1 text-destructive transition hover:bg-destructive/10"
-                          aria-label={`Remover ${item.nome}`}
-                        >
-                          <Trash2 size={16} aria-hidden="true" />
-                        </button>
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => alterarQuantidade(item.key, -1)}
-                            className="grid h-8 w-8 place-items-center rounded-lg bg-secondary font-black text-secondary-foreground transition hover:bg-primary hover:text-primary-foreground"
-                            aria-label={`Diminuir ${item.nome}`}
-                          >
-                            <Minus size={16} aria-hidden="true" />
-                          </button>
-                          <span className="w-7 text-center text-sm font-black">
-                            {item.quantidade}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => alterarQuantidade(item.key, 1)}
-                            className="grid h-8 w-8 place-items-center rounded-lg bg-primary font-black text-primary-foreground transition hover:bg-[var(--brand-red-dark)]"
-                            aria-label={`Aumentar ${item.nome}`}
-                          >
-                            <Plus size={16} aria-hidden="true" />
-                          </button>
-                        </div>
-                        <strong className="text-sm font-black text-primary">
-                          {formatCurrency(item.precoUnitario * item.quantidade)}
-                        </strong>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="border-t border-border p-3">
-              <label className="mb-3 block space-y-2">
-                <span className="text-sm font-bold text-foreground">Observações</span>
-                <textarea
-                  value={observacoes}
-                  onChange={(event) => setObservacoes(event.target.value)}
-                  rows={3}
-                  className="w-full resize-none rounded-lg border border-border bg-background p-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
-                  placeholder="Ex.: sem cebola, pouco orégano, troco para R$ 100"
-                />
-              </label>
-
-              {formaPagamento === "PIX" && (
-                <div className="mb-3 rounded-lg border border-green-200 bg-green-50 p-3 text-green-950">
-                  <div className="mb-2 flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-black uppercase text-green-800">Pagamento PIX</p>
-                      <p className="text-xs font-semibold text-green-700">
-                        Copie a chave e envie o comprovante para o caixa conferir.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-white p-2">
-                    <code className="flex-1 break-all text-sm font-black text-green-900">
-                      {PIX_KEY}
-                    </code>
-                    <button
-                      type="button"
-                      onClick={copiarPix}
-                      className="flex h-9 items-center gap-2 rounded-lg bg-green-700 px-3 text-xs font-black uppercase text-white transition hover:bg-green-800"
-                    >
-                      <Copy size={15} aria-hidden="true" />
-                      Copiar
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={abrirWhatsAppComprovante}
-                    className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#25D366] px-3 text-sm font-black uppercase text-white transition hover:bg-[#1fb458]"
-                  >
-                    <MessageCircle size={17} aria-hidden="true" />
-                    Enviar comprovante
-                  </button>
-                </div>
-              )}
-
-              <div className="space-y-2 rounded-lg bg-background p-3">
-                <div className="flex justify-between text-sm font-bold text-muted-foreground">
-                  <span>Subtotal</span>
-                  <span>{formatCurrency(subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm font-bold text-muted-foreground">
-                  <span>Entrega</span>
-                  <span>{formatCurrency(taxaEntrega)}</span>
-                </div>
-                <div className="flex justify-between border-t border-border pt-2 text-xl font-black text-primary">
-                  <span>Total</span>
-                  <span>{formatCurrency(total)}</span>
-                </div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCarrinho([])}
-                  disabled={carrinho.length === 0}
-                  className="rounded-lg border border-border bg-background py-3 text-sm font-black uppercase text-foreground transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  Limpar
-                </button>
-                <button
-                  type="button"
-                  onClick={finalizarPedido}
-                  disabled={!dadosConferenciaOk || !lojaAberta}
-                  className="flex items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black uppercase text-primary-foreground shadow-[var(--shadow-warm)] transition hover:bg-[var(--brand-red-dark)] disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  <ReceiptText size={17} aria-hidden="true" />
-                  {lojaAberta ? "Finalizar" : "Fechado"}
-                </button>
-              </div>
-            </div>
-          </section>
+          {conteudoCarrinho(false)}
         </aside>
       </div>
+
+      {/* MODAL DO CARRINHO (Apenas Mobile) */}
+      {modalCarrinhoAberto && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity lg:hidden">
+          {conteudoCarrinho(true)}
+        </div>
+      )}
 
       {modalSucessoAberto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity">
@@ -1071,6 +1124,26 @@ export function CustomerOrderPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* BOTÃO FLUTUANTE DO CARRINHO (Apenas Mobile/Tablets) */}
+      {carrinho.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setModalCarrinhoAberto(true)}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-3 rounded-full bg-primary px-5 py-3.5 font-black text-primary-foreground shadow-[0_8px_30px_rgb(0,0,0,0.3)] transition-transform hover:scale-105 active:scale-95 border-2 border-primary-foreground/20 lg:hidden"
+        >
+          <div className="relative flex items-center">
+            <ShoppingCart size={24} />
+            <span className="absolute -right-2.5 -top-2.5 flex h-5.5 w-5.5 items-center justify-center rounded-full bg-background text-[11px] text-primary shadow-sm border border-border">
+              {carrinho.reduce((totalItens, item) => totalItens + item.quantidade, 0)}
+            </span>
+          </div>
+          <span className="flex flex-col text-left border-l border-primary-foreground/30 pl-3 ml-1">
+            <span className="text-[10px] uppercase tracking-wider leading-none opacity-90 mb-1">Ver Carrinho</span>
+            <span className="text-sm leading-none">{formatCurrency(total)}</span>
+          </span>
+        </button>
       )}
     </div>
   );
