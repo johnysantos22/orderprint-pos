@@ -19,6 +19,7 @@ import {
   UserRound,
   AlertTriangle,
   X,
+  Ban,
 } from "lucide-react";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { db } from "@/services/firebase";
@@ -904,31 +905,29 @@ export function CustomerOrderPage() {
                   return (
                     <article
                       key={pizza.id}
-                      className={`rounded-lg border border-border bg-background p-4 transition hover:border-primary hover:shadow-[var(--shadow-card)] ${esgotado ? "opacity-40 grayscale pointer-events-none" : ""}`}
+                      className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-all duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
                     >
-                      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-lg font-black text-foreground">
-                            <span className="mr-2 text-primary">
-                              {String(pizza.id).padStart(2, "0")}.
-                            </span>
-                            {pizza.name}
-                          </h3>
-                          {pizza.description && (
-                            <p className="mt-1 text-sm font-medium text-muted-foreground">
-                              {pizza.description}
-                            </p>
-                          )}
-                          {pizza.highlight && (
-                            <p className="mt-2 text-xs font-black uppercase text-primary">
-                              {pizza.highlight}
-                            </p>
-                          )}
+                      {esgotado && (
+                        <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm flex items-center gap-1 z-10">
+                          <Ban size={10} /> Esgotado
                         </div>
-                        {esgotado && (
-                          <span className="bg-red-600 text-white px-2 py-0.5 text-[10px] font-black uppercase rounded">
-                            ESGOTADO
+                      )}
+                      <div className="mb-4 pr-20">
+                        <h3 className={`text-lg font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
+                          <span className="mr-2 text-primary">
+                            {String(pizza.id).padStart(2, "0")}.
                           </span>
+                          {pizza.name}
+                        </h3>
+                        {pizza.description && (
+                          <p className="mt-1 text-sm font-medium text-muted-foreground">
+                            {pizza.description}
+                          </p>
+                        )}
+                        {pizza.highlight && (
+                          <p className="mt-2 text-xs font-black uppercase text-primary">
+                            {pizza.highlight}
+                          </p>
                         )}
                       </div>
 
@@ -978,23 +977,21 @@ export function CustomerOrderPage() {
                     return (
                       <article
                         key={item.id}
-                        className={`rounded-lg border border-border bg-background p-4 transition hover:border-primary hover:shadow-[var(--shadow-card)] ${esgotado ? "opacity-40 grayscale pointer-events-none" : ""}`}
+                        className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-all duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
                       >
-                        <div className="mb-3 flex justify-between items-start">
-                          <div>
-                            <h3 className="text-base font-black text-foreground">
-                              <span className="mr-2 text-primary">{item.id}.</span>
-                              {item.name}
-                            </h3>
-                            <p className="text-xs font-semibold text-muted-foreground">
-                              Ao leite tem acréscimo de {formatCurrency(SUCO_AO_LEITE_ACRESCIMO)}.
-                            </p>
+                        {esgotado && (
+                          <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm flex items-center gap-1 z-10">
+                            <Ban size={10} /> Esgotado
                           </div>
-                          {esgotado && (
-                            <span className="bg-red-600 text-white px-2 py-0.5 text-[10px] font-black uppercase rounded">
-                              ESGOTADO
-                            </span>
-                          )}
+                        )}
+                        <div className="mb-4 pr-20">
+                          <h3 className={`text-base font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
+                            <span className="mr-2 text-primary">{item.id}.</span>
+                            {item.name}
+                          </h3>
+                          <p className="text-xs font-semibold text-muted-foreground mt-1">
+                            Ao leite tem acréscimo de {formatCurrency(SUCO_AO_LEITE_ACRESCIMO)}.
+                          </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-2">
@@ -1060,17 +1057,17 @@ export function CustomerOrderPage() {
                           precoUnitario: item.price,
                         })
                       }
-                      className={`flex items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 text-left transition hover:border-primary hover:shadow-[var(--shadow-card)] ${esgotado ? "opacity-40 grayscale pointer-events-none" : ""}`}
+                      className={`relative flex items-center justify-between gap-4 p-4 rounded-xl border-2 text-left transition-all duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
                     >
-                      <span>
-                        <span className="block text-base font-black text-foreground">
+                      {esgotado && (
+                        <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm flex items-center gap-1 z-10">
+                          <Ban size={10} /> Esgotado
+                        </div>
+                      )}
+                      <span className="pr-16">
+                        <span className={`block text-base font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
                           <span className="mr-2 text-primary">{item.id}.</span>
                           {item.name}
-                          {esgotado && (
-                            <span className="ml-2 bg-red-600 text-white px-2 py-0.5 text-[10px] font-black uppercase rounded">
-                              ESGOTADO
-                            </span>
-                          )}
                         </span>
                         {item.description && (
                           <span className="mt-1 block text-xs font-medium text-muted-foreground">
@@ -1078,7 +1075,7 @@ export function CustomerOrderPage() {
                           </span>
                         )}
                       </span>
-                      <span className="shrink-0 rounded-lg bg-secondary px-3 py-2 text-sm font-black text-secondary-foreground">
+                      <span className={`shrink-0 rounded-lg px-3 py-2 text-sm font-black ${esgotado ? "bg-red-100 text-red-800/50" : "bg-secondary text-secondary-foreground"}`}>
                         {formatCurrency(item.price)}
                       </span>
                     </button>

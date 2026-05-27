@@ -9,6 +9,7 @@ import {
   UserRound,
   AlertTriangle,
   X,
+  Ban,
 } from "lucide-react";
 import { PinLock } from "@/shared/components/PinLock";
 import { bebidas, pasteis, pizzas, porcoes, sucos, type PizzaSize } from "@/domain/menu/menu";
@@ -202,15 +203,23 @@ function GarcomPage() {
       snap.forEach((d) => {
         const p = d.data() as PedidoMesa;
         if (p.status !== "cancelado" && p.status !== "finalizado" && p.mesa) {
-          mesas.add(p.mesa);
+          let mesaNormalizada = String(p.mesa).trim();
+          if (/^\d+$/.test(mesaNormalizada)) {
+            mesaNormalizada = parseInt(mesaNormalizada, 10).toString();
+          }
+          mesas.add(mesaNormalizada);
         }
       });
-      setMesasAbertas(Array.from(mesas));
+      setMesasAbertas(Array.from(mesas).sort((a, b) => Number(a) - Number(b)));
     });
     return () => unsubscribePedidos();
   }, []);
 
-  const isMesaAberta = mesasAbertas.includes(pedido.numeroMesa.trim());
+  let mesaInputNormalizada = pedido.numeroMesa.trim();
+  if (/^\d+$/.test(mesaInputNormalizada)) {
+    mesaInputNormalizada = parseInt(mesaInputNormalizada, 10).toString();
+  }
+  const isMesaAberta = mesasAbertas.includes(mesaInputNormalizada);
 
   const avisarItemAdicionado = (nomeItem: string) => {
     setMensagemCarrinho(`${nomeItem} adicionado à mesa.`);
@@ -363,11 +372,16 @@ function GarcomPage() {
       return;
     }
 
-    let origemPedido = `MESA ${pedido.numeroMesa.trim()}`;
+    let mesaFinal = pedido.numeroMesa.trim();
+    if (/^\d+$/.test(mesaFinal)) {
+      mesaFinal = parseInt(mesaFinal, 10).toString();
+    }
+
+    let origemPedido = `MESA ${mesaFinal}`;
     if (isMesaAberta) {
       origemPedido = tipoComplemento === "acrescimo"
-        ? `ACRÉSCIMO - MESA ${pedido.numeroMesa.trim()}`
-        : `CORREÇÃO/RETIRADA - MESA ${pedido.numeroMesa.trim()}`;
+        ? `ACRÉSCIMO - MESA ${mesaFinal}`
+        : `CORREÇÃO/RETIRADA - MESA ${mesaFinal}`;
     }
 
     const pedidoMesa: PedidoMesa = {
@@ -375,7 +389,7 @@ function GarcomPage() {
       data: new Date().toISOString(),
       origem: origemPedido,
       garcom: pedido.nomeGarcom.trim(),
-      mesa: pedido.numeroMesa.trim(),
+      mesa: mesaFinal,
       pagamento: "A DEFINIR NO CAIXA",
       itens: pedido.carrinho,
       subtotal,
@@ -407,10 +421,10 @@ function GarcomPage() {
   };
 
   const conteudoCarrinho = (isModal: boolean) => (
-    <section className={`flex flex-col border-primary bg-card ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2 overflow-hidden" : "rounded-lg border-2 shadow-[var(--shadow-warm)]"}`}>
-      <div className={`flex items-center justify-between gap-3 bg-primary px-4 py-3 text-primary-foreground ${isModal ? "shrink-0" : "border-b border-border"}`}>
+    <section className={`flex flex-col border-primary bg-card ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2 overflow-hidden" : "rounded-2xl border-2 shadow-sm"}`}>
+      <div className={`flex items-center justify-between gap-3 bg-primary px-5 py-4 text-primary-foreground ${isModal ? "shrink-0" : "border-b border-border"}`}>
         <h2 className="flex items-center gap-2 text-lg font-black uppercase">
-          <ShoppingCart size={20} aria-hidden="true" />
+          <ShoppingCart size={22} aria-hidden="true" />
           Mesa {pedido.numeroMesa || "--"}
         </h2>
         <div className="flex items-center gap-3">
@@ -636,10 +650,10 @@ function GarcomPage() {
         <section
           className={`space-y-4 transition-all duration-300 ${!lojaAberta ? "pointer-events-none opacity-50 grayscale" : ""}`}
         >
-          <div className="rounded-lg border border-border bg-card p-4 shadow-[var(--shadow-card)]">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-2">
-                <span className="flex items-center gap-2 text-sm font-bold text-foreground">
+          <div className="bg-card border border-border rounded-xl p-5 sm:p-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
+              <label className="flex-1 space-y-2">
+                <span className="flex items-center gap-2 text-[10px] md:text-xs font-black uppercase text-muted-foreground">
                   <UserRound size={16} aria-hidden="true" />
                   Nome do Garçom
                 </span>
@@ -651,13 +665,13 @@ function GarcomPage() {
                       nomeGarcom: event.target.value,
                     }))
                   }
-                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
+                  className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-bold outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 shadow-inner"
                   placeholder="Ex.: João"
                 />
               </label>
 
-              <label className="space-y-2">
-                <span className="text-sm font-bold text-foreground">Número da Mesa</span>
+              <label className="flex-1 space-y-2">
+                <span className="text-[10px] md:text-xs font-black uppercase text-muted-foreground">Número da Mesa</span>
                 <input
                   value={pedido.numeroMesa}
                   onChange={(event) =>
@@ -667,56 +681,81 @@ function GarcomPage() {
                     }))
                   }
                   inputMode="numeric"
-                  className="h-11 w-full rounded-lg border-2 border-primary bg-background px-3 text-center text-lg font-black outline-none transition focus:ring-4 focus:ring-primary/10"
+                  className="h-12 w-full rounded-xl border-2 border-primary/50 bg-background px-4 text-center text-xl font-black outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/20 shadow-inner"
                   placeholder="00"
                 />
               </label>
             </div>
 
+            {mesasAbertas.length > 0 && (
+              <div className="mt-5 pt-4 border-t border-border">
+                <span className="text-[10px] font-black uppercase text-muted-foreground mb-3 block">Mesas em atendimento (Toque para adicionar itens):</span>
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                  {mesasAbertas.map((m) => {
+                    const isSelected = mesaInputNormalizada === m;
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setPedido(prev => ({ ...prev, numeroMesa: m }))}
+                        className={`flex-shrink-0 px-5 py-2.5 rounded-xl text-xs font-black uppercase transition-all border ${isSelected
+                            ? "bg-yellow-500 text-white border-yellow-600 shadow-md ring-2 ring-yellow-500/20"
+                            : "bg-yellow-50 text-yellow-800 border-yellow-200 hover:bg-yellow-100"
+                          }`}
+                      >
+                        Mesa {m}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {isMesaAberta && (
-              <div className="sm:col-span-2 mt-1 rounded-xl bg-yellow-500/10 border border-yellow-500/20 p-3 sm:p-4">
-                <p className="text-sm font-black text-yellow-600 flex items-center gap-2 mb-2">
+              <div className="mt-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 p-4 sm:p-5 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-1.5 h-full bg-yellow-500"></div>
+                <p className="text-sm font-black text-yellow-700 flex items-center gap-2 mb-3">
                   <AlertTriangle size={18} />
-                  Mesa já aberta! Enviar como complemento:
+                  Mesa {mesaInputNormalizada} já está aberta
                 </p>
-                <div className="flex flex-col sm:flex-row gap-3 sm:gap-6">
-                  <label className="flex items-center gap-2 text-sm font-bold text-yellow-700 cursor-pointer">
+                <p className="text-xs text-yellow-700/80 mb-4 font-semibold">
+                  Selecione se deseja adicionar novos itens ou retirar/corrigir algo do pedido atual.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <label className={`flex-1 flex items-center justify-center gap-2 text-xs font-black uppercase px-4 py-3 rounded-xl cursor-pointer transition-all border ${tipoComplemento === 'acrescimo' ? 'bg-yellow-500 text-white border-yellow-600 shadow-md' : 'bg-background border-yellow-300 text-yellow-700 hover:bg-yellow-50'}`}>
                     <input
                       type="radio"
                       checked={tipoComplemento === "acrescimo"}
                       onChange={() => setTipoComplemento("acrescimo")}
-                      className="accent-yellow-600 w-4 h-4"
+                      className="sr-only"
                     />
-                    Acréscimo de Itens
+                    <Plus size={16} /> Acréscimo de Itens
                   </label>
-                  <label className="flex items-center gap-2 text-sm font-bold text-yellow-700 cursor-pointer">
+                  <label className={`flex-1 flex items-center justify-center gap-2 text-xs font-black uppercase px-4 py-3 rounded-xl cursor-pointer transition-all border ${tipoComplemento === 'correcao' ? 'bg-yellow-500 text-white border-yellow-600 shadow-md' : 'bg-background border-yellow-300 text-yellow-700 hover:bg-yellow-50'}`}>
                     <input
                       type="radio"
                       checked={tipoComplemento === "correcao"}
                       onChange={() => setTipoComplemento("correcao")}
-                      className="accent-yellow-600 w-4 h-4"
+                      className="sr-only"
                     />
-                    Retirada / Correção
+                    <Minus size={16} /> Retirada / Correção
                   </label>
                 </div>
-                <p className="text-xs text-yellow-600/80 mt-2 font-semibold">
-                  Será impresso um cupom sinalizando a cozinha sobre esta alteração.
-                </p>
               </div>
             )}
           </div>
 
           {/* ÁREA DE ABAS E CARDÁPIO COMPLETO */}
-          <div className="rounded-lg border border-border bg-card p-4 shadow-[var(--shadow-card)]">
-            <div className="mb-4 flex flex-wrap gap-2">
+          <div className="bg-card border border-border rounded-xl p-5 sm:p-6 shadow-sm">
+            <div className="mb-6 flex flex-wrap gap-2">
               {tabs.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => setTab(item.id)}
-                  className={`rounded-lg px-4 py-2 text-sm font-black uppercase transition ${tab === item.id
-                    ? "bg-primary text-primary-foreground shadow-[var(--shadow-warm)]"
-                    : "bg-background text-foreground hover:bg-secondary"
+                  className={`rounded-xl px-5 py-2.5 text-sm font-black uppercase transition-all ${tab === item.id
+                    ? "bg-primary text-primary-foreground shadow-md ring-2 ring-primary/20"
+                    : "bg-background text-muted-foreground border border-border hover:bg-muted"
                     }`}
                 >
                   {item.label}
@@ -797,31 +836,29 @@ function GarcomPage() {
                   return (
                     <article
                       key={pizza.id}
-                      className={`rounded-lg border border-border bg-background p-4 transition hover:border-primary hover:shadow-[var(--shadow-card)] ${esgotado ? "opacity-40 grayscale pointer-events-none" : ""}`}
+                      className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-all duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
                     >
-                      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-lg font-black text-foreground">
-                            <span className="mr-2 text-primary">
-                              {String(pizza.id).padStart(2, "0")}.
-                            </span>
-                            {pizza.name}
-                          </h3>
-                          {pizza.description && (
-                            <p className="mt-1 text-sm font-medium text-muted-foreground">
-                              {pizza.description}
-                            </p>
-                          )}
-                          {pizza.highlight && (
-                            <p className="mt-2 text-xs font-black uppercase text-primary">
-                              {pizza.highlight}
-                            </p>
-                          )}
+                      {esgotado && (
+                        <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm flex items-center gap-1 z-10">
+                          <Ban size={10} /> Esgotado
                         </div>
-                        {esgotado && (
-                          <span className="bg-red-600 text-white px-2 py-0.5 text-[10px] font-black uppercase rounded">
-                            ESGOTADO
+                      )}
+                      <div className="mb-4 pr-20">
+                        <h3 className={`text-lg font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
+                          <span className="mr-2 text-primary">
+                            {String(pizza.id).padStart(2, "0")}.
                           </span>
+                          {pizza.name}
+                        </h3>
+                        {pizza.description && (
+                          <p className="mt-1 text-sm font-medium text-muted-foreground">
+                            {pizza.description}
+                          </p>
+                        )}
+                        {pizza.highlight && (
+                          <p className="mt-2 text-xs font-black uppercase text-primary">
+                            {pizza.highlight}
+                          </p>
                         )}
                       </div>
 
@@ -872,23 +909,21 @@ function GarcomPage() {
                     return (
                       <article
                         key={item.id}
-                        className={`rounded-lg border border-border bg-background p-4 transition hover:border-primary hover:shadow-[var(--shadow-card)] ${esgotado ? "opacity-40 grayscale pointer-events-none" : ""}`}
+                        className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-all duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
                       >
-                        <div className="mb-3 flex justify-between items-start">
-                          <div>
-                            <h3 className="text-base font-black text-foreground">
-                              <span className="mr-2 text-primary">{item.id}.</span>
-                              {item.name}
-                            </h3>
-                            <p className="text-xs font-semibold text-muted-foreground">
-                              Ao leite tem acréscimo de {formatCurrency(SUCO_AO_LEITE_ACRESCIMO)}.
-                            </p>
+                        {esgotado && (
+                          <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm flex items-center gap-1 z-10">
+                            <Ban size={10} /> Esgotado
                           </div>
-                          {esgotado && (
-                            <span className="bg-red-600 text-white px-2 py-0.5 text-[10px] font-black uppercase rounded">
-                              ESGOTADO
-                            </span>
-                          )}
+                        )}
+                        <div className="mb-4 pr-20">
+                          <h3 className={`text-base font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
+                            <span className="mr-2 text-primary">{item.id}.</span>
+                            {item.name}
+                          </h3>
+                          <p className="text-xs font-semibold text-muted-foreground mt-1">
+                            Ao leite tem acréscimo de {formatCurrency(SUCO_AO_LEITE_ACRESCIMO)}.
+                          </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-2">
@@ -955,17 +990,17 @@ function GarcomPage() {
                           precoUnitario: item.price,
                         })
                       }
-                      className={`flex items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 text-left transition hover:border-primary hover:shadow-[var(--shadow-card)] ${esgotado ? "opacity-40 grayscale pointer-events-none" : ""}`}
+                      className={`relative flex items-center justify-between gap-4 p-4 rounded-xl border-2 text-left transition-all duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
                     >
-                      <span>
-                        <span className="block text-base font-black text-foreground">
+                      {esgotado && (
+                        <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm flex items-center gap-1 z-10">
+                          <Ban size={10} /> Esgotado
+                        </div>
+                      )}
+                      <span className="pr-16">
+                        <span className={`block text-base font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
                           <span className="mr-2 text-primary">{item.id}.</span>
                           {item.name}
-                          {esgotado && (
-                            <span className="ml-2 bg-red-600 text-white px-2 py-0.5 text-[10px] font-black uppercase rounded">
-                              ESGOTADO
-                            </span>
-                          )}
                         </span>
                         {item.description && (
                           <span className="mt-1 block text-xs font-medium text-muted-foreground">
@@ -973,7 +1008,7 @@ function GarcomPage() {
                           </span>
                         )}
                       </span>
-                      <span className="shrink-0 rounded-lg bg-secondary px-3 py-2 text-sm font-black text-secondary-foreground">
+                      <span className={`shrink-0 rounded-lg px-3 py-2 text-sm font-black ${esgotado ? "bg-red-100 text-red-800/50" : "bg-secondary text-secondary-foreground"}`}>
                         {formatCurrency(item.price)}
                       </span>
                     </button>

@@ -22,6 +22,10 @@ import {
   Settings,
   Lock,
   CalendarDays,
+  Smartphone,
+  RefreshCw,
+  QrCode,
+  Package,
 } from "lucide-react";
 import { PinLock } from "@/shared/components/PinLock";
 import somCampainha from "@/assets/campainha.mp3";
@@ -111,7 +115,7 @@ function CaixaPage() {
   const [mostrarCancelados, setMostrarCancelados] = useState(false);
 
   const [telaAtiva, setTelaAtiva] = useState<"dashboard" | "config" | "mesas">("mesas");
-  const [abaConfig, setAbaConfig] = useState<"estoque" | "senhas" | "loja">("estoque");
+  const [abaConfig, setAbaConfig] = useState<"estoque" | "senhas" | "loja" | "whatsapp">("estoque");
   const [esgotados, setEsgotados] = useState<number[]>([]);
   const [inputPinCaixa, setInputPinCaixa] = useState("");
   const [inputPinGarcom, setInputPinGarcom] = useState("");
@@ -123,6 +127,10 @@ function CaixaPage() {
   >("pizzas");
 
   const [horaAtual, setHoraAtual] = useState(new Date());
+
+  // Novos estados para o QR Code do WhatsApp
+  const [qrCodeBase64, setQrCodeBase64] = useState<string | null>(null);
+  const [carregandoQr, setCarregandoQr] = useState(false);
 
   const [alerta, setAlerta] = useState<{
     titulo: string;
@@ -145,8 +153,13 @@ function CaixaPage() {
     pedidos.forEach((p) => {
       if (p.status !== "cancelado" && p.status !== "finalizado") {
         if (p.mesa) {
-          if (!mesas.has(p.mesa)) mesas.set(p.mesa, []);
-          mesas.get(p.mesa)!.push(p);
+          // Normaliza o número da mesa (ex: " 05 " vira "5") para evitar duplicidade visual
+          let mesaNormalizada = String(p.mesa).trim();
+          if (/^\d+$/.test(mesaNormalizada)) {
+            mesaNormalizada = parseInt(mesaNormalizada, 10).toString();
+          }
+          if (!mesas.has(mesaNormalizada)) mesas.set(mesaNormalizada, []);
+          mesas.get(mesaNormalizada)!.push(p);
         } else {
           outros.push(p);
         }
@@ -342,7 +355,6 @@ function CaixaPage() {
     try {
       let temPendente = true;
       while (temPendente) {
-        // Pega o estado mais atualizado e inverte para imprimir o mais antigo primeiro
         const pendente = [...pedidosRef.current]
           .reverse()
           .find((p) => !p.impresso && p.status !== "cancelado");
@@ -500,13 +512,11 @@ function CaixaPage() {
         tipo: "sucesso",
       });
 
-      // Pega o telefone e garante que só tem números
       let telefoneCliente = pedido.telefone || pedido.cliente?.telefone;
 
       if (telefoneCliente) {
-        telefoneCliente = telefoneCliente.replace(/\D/g, ''); // Tira traços e espaços
+        telefoneCliente = telefoneCliente.replace(/\D/g, '');
 
-        // Se o cliente não digitou o 55 do Brasil, nós adicionamos
         if (!telefoneCliente.startsWith('55')) {
           telefoneCliente = '55' + telefoneCliente;
         }
@@ -515,18 +525,13 @@ function CaixaPage() {
         let mensagem = "";
 
         if (novoStatus === "em_preparo") {
-          if (pedido.tipoEntrega === "RETIRAR") {
-            mensagem = `Olá ${nomeCliente}! 🍕 Seu pedido já está na cozinha sendo preparado com muito carinho. Avisaremos quando estiver pronto para retirada!`;
-          } else {
-            mensagem = `Olá ${nomeCliente}!  Seu pedido já está na cozinha sendo preparado com muito carinho. Avisaremos quando sair para entrega!`;
-          }
+          mensagem = `Olá ${nomeCliente}! 🍕 Seu pedido já está na cozinha sendo preparado com muito carinho. Avisaremos quando sair!`;
         } else if (novoStatus === "em_rota") {
           mensagem = `Oba, ${nomeCliente}! 🛵 Seu pedido acabou de sair para entrega. Fique de olho, nosso entregador está chegando!`;
         } else if (novoStatus === "pronto") {
           mensagem = `Olá ${nomeCliente}! 🛍️ Seu pedido já está pronto e embalado, te esperando para retirada no balcão!`;
         }
 
-        // Disparo via Proxy do Vite direto para o Google Cloud
         await fetch("/evolution-api/message/sendText/Pizzaria2Irmaos", {
           method: "POST",
           headers: {
@@ -560,6 +565,40 @@ function CaixaPage() {
       setDraftPedidoEdicao(null);
     } catch {
       setAlerta({ titulo: "Erro", mensagem: "Erro ao atualizar o pedido.", tipo: "erro" });
+    }
+  };
+
+  // Nova função para buscar o QR Code diretamente do backend (via Proxy do Vite)
+  const buscarQrCodeWhatsApp = async () => {
+    setCarregandoQr(true);
+    setQrCodeBase64(null);
+    try {
+      const response = await fetch("/evolution-api/instance/connect/Pizzaria2Irmaos", {
+        method: "GET",
+        headers: {
+          "apikey": "minha-senha-secreta-123"
+        }
+      });
+
+      const data = await response.json();
+
+      if (data && data.base64) {
+        setQrCodeBase64(data.base64);
+      } else {
+        setAlerta({
+          titulo: "Aviso",
+          mensagem: "Não foi possível gerar o QR Code. O celular já está conectado ou a instância precisa ser recriada.",
+          tipo: "aviso"
+        });
+      }
+    } catch (error) {
+      setAlerta({
+        titulo: "Erro",
+        mensagem: "Erro ao comunicar com a Evolution API na nuvem.",
+        tipo: "erro"
+      });
+    } finally {
+      setCarregandoQr(false);
     }
   };
 
@@ -691,9 +730,7 @@ function CaixaPage() {
                 <div className="flex justify-between items-center text-xs mt-1.5">
                   <span className="text-muted-foreground font-semibold flex items-center gap-1.5">
                     <ShoppingBag size={14} />{" "}
-                    {a.pedidos.length > 1
-                      ? `${a.pedidos.length} pedidos`
-                      : `${a.pedidos[0].itens.length} itens`}
+                    {a.pedidos.reduce((total, p) => total + p.itens.reduce((sum, item) => sum + item.quantidade, 0), 0)} itens
                   </span>
                   <span className="font-black text-primary text-sm md:text-base">
                     {formatCurrency(a.total)}
@@ -732,7 +769,7 @@ function CaixaPage() {
                       <div className="bg-muted/30 px-4 sm:px-5 py-3 border-b border-border flex justify-between items-center">
                         <div className="flex items-center gap-2 md:gap-3">
                           <span className="font-black text-sm md:text-base">
-                            Pedido #{p.id.slice(0, 6).toUpperCase()}
+                            {atendimentoAtual.tipo === "mesa" ? "Lançamento" : "Pedido"} #{p.id.slice(0, 6).toUpperCase()}
                           </span>
                           <span
                             className={`text-[10px] md:text-xs font-black uppercase px-2 py-1 rounded-md ${p.status === "em_preparo"
@@ -884,7 +921,7 @@ function CaixaPage() {
                       Configurações
                     </h1>
                     <p className="text-[10px] sm:text-xs md:text-sm font-bold text-muted-foreground mt-1">
-                      Gerencie o estoque e a segurança do sistema.
+                      Gerencie o estoque, a segurança e a comunicação do sistema.
                     </p>
                   </div>
                   <button
@@ -917,107 +954,338 @@ function CaixaPage() {
                     <Clock size={16} />
                     Loja
                   </button>
+                  <button
+                    onClick={() => {
+                      setAbaConfig("whatsapp");
+                      buscarQrCodeWhatsApp();
+                    }}
+                    className={`flex whitespace-nowrap items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 text-[10px] sm:text-xs font-black uppercase rounded-lg transition-all shadow-sm ${abaConfig === "whatsapp" ? "bg-primary text-white" : "bg-card text-muted-foreground hover:bg-muted border border-border"}`}
+                  >
+                    <Smartphone size={16} />
+                    WhatsApp
+                  </button>
                 </div>
 
                 {abaConfig === "estoque" && (
-                  <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
-                    <div className="flex gap-1.5 md:gap-2 mb-3 md:mb-4 flex-wrap">
-                      {(["pizzas", "pasteis", "porcoes", "bebidas", "sucos"] as const).map((t) => (
-                        <button
-                          key={t}
-                          onClick={() => setCategoriaConfig(t)}
-                          className={`px-3 py-1.5 text-[10px] md:text-xs font-black rounded-lg capitalize transition-all ${categoriaConfig === t ? "bg-zinc-800 text-white shadow-md" : "bg-background border border-border text-muted-foreground hover:bg-muted"}`}
-                        >
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="grid md:grid-cols-2 gap-2 md:gap-3">
-                      {itensMenuDaCategoria.map((i) => {
-                        const esg = esgotados.includes(i.id);
-                        return (
-                          <div
-                            key={i.id}
-                            className="flex items-center justify-between border border-border bg-background p-2.5 md:p-3 rounded-xl transition-all hover:border-primary/40 shadow-sm"
-                          >
-                            <span className="text-xs md:text-sm font-black text-foreground">{i.name}</span>
-                            <button
-                              onClick={() => handleToggleEsgotado(i.id)}
-                              className={`px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${esg ? "bg-red-600 text-white shadow-sm" : "bg-green-100 text-green-700 hover:bg-green-200"}`}
-                            >
-                              {esg ? "⚠️ Esgotado" : "✓ Disponível"}
-                            </button>
+                  <div className="bg-card border border-border rounded-xl shadow-sm mt-4 mx-auto max-w-6xl overflow-hidden">
+                    <div className="flex flex-col md:flex-row">
+                      {/* Lado Esquerdo - Categorias e Info */}
+                      <div className="w-full md:w-64 lg:w-72 bg-muted/30 border-b md:border-b-0 md:border-r border-border p-5 sm:p-6 flex flex-col gap-6">
+                        <div>
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="bg-blue-100 p-2.5 rounded-xl text-blue-600">
+                              <Package size={24} />
+                            </div>
+                            <h3 className="text-xl font-black text-foreground">Estoque</h3>
                           </div>
-                        );
-                      })}
+                          <p className="text-xs font-semibold text-muted-foreground">
+                            Desative itens que acabaram para ocultá-los do catálogo digital e do painel do garçom em tempo real.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <h4 className="text-[10px] font-black uppercase text-muted-foreground mb-3 px-1">Categorias</h4>
+                          <div className="flex md:flex-col gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0 scrollbar-hide">
+                            {(["pizzas", "pasteis", "porcoes", "bebidas", "sucos"] as const).map((t) => (
+                              <button
+                                key={t}
+                                onClick={() => setCategoriaConfig(t)}
+                                className={`flex-shrink-0 md:w-full flex items-center justify-between px-4 py-3 text-xs md:text-sm font-black rounded-xl capitalize transition-all shadow-sm border ${categoriaConfig === t ? "bg-primary border-primary text-white shadow-md" : "bg-card border-border text-muted-foreground hover:bg-muted hover:border-primary/30"}`}
+                              >
+                                {t}
+                                {categoriaConfig === t && <CheckCircle2 size={16} className="hidden md:block" />}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Lado Direito - Grid de Itens */}
+                      <div className="flex-1 p-5 sm:p-6 bg-background flex flex-col">
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className="text-base sm:text-lg font-black uppercase text-foreground capitalize flex items-center gap-2">
+                            {categoriaConfig}
+                          </h4>
+                          <span className="text-[10px] sm:text-xs font-black text-muted-foreground bg-muted px-3 py-1.5 rounded-lg border border-border">
+                            {itensMenuDaCategoria.length} ITENS
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 max-h-[500px] xl:max-h-[600px] overflow-y-auto pr-1">
+                          {itensMenuDaCategoria.map((i) => {
+                            const esg = esgotados.includes(i.id);
+                            return (
+                              <div
+                                key={i.id}
+                                className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-all duration-200 shadow-sm ${esg ? "bg-red-50/50 border-red-200" : "bg-card border-border hover:border-primary/40"}`}
+                              >
+                                {esg && (
+                                  <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm flex items-center gap-1 z-10">
+                                    <Ban size={10} /> Esgotado
+                                  </div>
+                                )}
+                                <div className="mb-4 pr-20">
+                                  <h5 className={`font-black text-sm md:text-base leading-tight ${esg ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
+                                    {i.name}
+                                  </h5>
+                                </div>
+                                <button
+                                  onClick={() => handleToggleEsgotado(i.id)}
+                                  className={`w-full flex items-center justify-center gap-2 px-3 py-2.5 text-[10px] md:text-xs font-black uppercase rounded-lg transition-all ${esg ? "bg-red-100 text-red-700 hover:bg-red-200 shadow-sm" : "bg-muted/50 text-foreground hover:bg-primary/10 hover:text-primary border border-transparent hover:border-primary/20"}`}
+                                >
+                                  {esg ? (
+                                    <><CheckCircle2 size={14} /> Reativar Item</>
+                                  ) : (
+                                    <><Ban size={14} /> Pausar Item</>
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
 
                 {abaConfig === "senhas" && (
-                  <div className="grid md:grid-cols-2 gap-3 md:gap-4">
-                    <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
-                      <label className="block text-[10px] md:text-xs font-black text-muted-foreground mb-1.5 md:mb-2 uppercase">
-                        Nova Senha do Caixa (Números)
-                      </label>
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <input
-                          type="text"
-                          maxLength={6}
-                          value={inputPinCaixa}
-                          onChange={(e) => setInputPinCaixa(e.target.value.replace(/\D/g, ""))}
-                          className="h-9 md:h-10 flex-1 rounded-lg border border-border bg-background px-3 font-black text-sm md:text-base tracking-widest outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 text-center sm:text-left"
-                        />
-                        <button
-                          onClick={() => handleSalvarSenha("caixa")}
-                          className="h-9 md:h-10 rounded-lg bg-primary px-4 font-black text-[10px] md:text-xs uppercase text-white hover:bg-primary/90 shadow-md transition-all"
-                        >
-                          Salvar
-                        </button>
+                  <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8 mt-4 mx-auto max-w-4xl">
+                    <div className="flex flex-col md:flex-row gap-8 items-start">
+                      {/* Lado Esquerdo: Textos e Instruções */}
+                      <div className="flex-1 space-y-6 w-full md:max-w-sm">
+                        <div>
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="bg-primary/10 p-2.5 rounded-xl text-primary">
+                              <Lock size={24} />
+                            </div>
+                            <h3 className="text-xl sm:text-2xl font-black text-foreground">Controle de Acesso</h3>
+                          </div>
+                          <p className="text-sm font-semibold text-muted-foreground">
+                            Defina os códigos PIN numéricos para restringir e proteger o acesso às áreas operacionais do sistema.
+                          </p>
+                        </div>
+
+                        <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-amber-800 text-xs font-semibold flex gap-3 items-start shadow-sm">
+                          <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+                          <p>
+                            Recomendamos criar senhas diferentes para o Caixa e para os Garçons. Senhas fáceis (como 1234) podem comprometer a segurança da loja.
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
-                      <label className="block text-[10px] md:text-xs font-black text-muted-foreground mb-1.5 md:mb-2 uppercase">
-                        Nova Senha Garçom (Números)
-                      </label>
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <input
-                          type="text"
-                          maxLength={6}
-                          value={inputPinGarcom}
-                          onChange={(e) => setInputPinGarcom(e.target.value.replace(/\D/g, ""))}
-                          className="h-9 md:h-10 flex-1 rounded-lg border border-border bg-background px-3 font-black text-sm md:text-base tracking-widest outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 text-center sm:text-left"
-                        />
-                        <button
-                          onClick={() => handleSalvarSenha("garcom")}
-                          className="h-9 md:h-10 rounded-lg bg-primary px-4 font-black text-[10px] md:text-xs uppercase text-white hover:bg-primary/90 shadow-md transition-all"
-                        >
-                          Salvar
-                        </button>
+
+                      {/* Lado Direito: Formulários */}
+                      <div className="flex-1 w-full space-y-4">
+                        {/* Card Caixa */}
+                        <div className="bg-muted/30 border border-border rounded-xl p-5 relative overflow-hidden group hover:border-primary/40 transition-colors">
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="bg-background border border-border p-2 rounded-lg shadow-sm">
+                              <Store size={18} className="text-foreground" />
+                            </div>
+                            <div>
+                              <h4 className="font-black text-sm uppercase text-foreground">Senha do Caixa</h4>
+                              <p className="text-[10px] font-semibold text-muted-foreground">Acesso total ao Painel PDV</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <div className="relative flex-1">
+                              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                              <input
+                                type="text"
+                                maxLength={6}
+                                value={inputPinCaixa}
+                                onChange={(e) => setInputPinCaixa(e.target.value.replace(/\D/g, ""))}
+                                placeholder="PIN"
+                                className="h-12 w-full rounded-xl border border-border bg-background pl-9 pr-4 font-black text-lg tracking-[0.25em] outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
+                              />
+                            </div>
+                            <button
+                              onClick={() => handleSalvarSenha("caixa")}
+                              className="h-12 px-6 rounded-xl bg-primary font-black text-xs uppercase text-white hover:bg-primary/90 shadow-md transition-all flex items-center justify-center"
+                            >
+                              Salvar
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Card Garçom */}
+                        <div className="bg-muted/30 border border-border rounded-xl p-5 relative overflow-hidden group hover:border-primary/40 transition-colors">
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="bg-background border border-border p-2 rounded-lg shadow-sm">
+                              <Smartphone size={18} className="text-foreground" />
+                            </div>
+                            <div>
+                              <h4 className="font-black text-sm uppercase text-foreground">Senha da Equipe</h4>
+                              <p className="text-[10px] font-semibold text-muted-foreground">Acesso à Comanda no Salão</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <div className="relative flex-1">
+                              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                              <input
+                                type="text"
+                                maxLength={6}
+                                value={inputPinGarcom}
+                                onChange={(e) => setInputPinGarcom(e.target.value.replace(/\D/g, ""))}
+                                placeholder="PIN"
+                                className="h-12 w-full rounded-xl border border-border bg-background pl-9 pr-4 font-black text-lg tracking-[0.25em] outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
+                              />
+                            </div>
+                            <button
+                              onClick={() => handleSalvarSenha("garcom")}
+                              className="h-12 px-6 rounded-xl bg-primary font-black text-xs uppercase text-white hover:bg-primary/90 shadow-md transition-all flex items-center justify-center"
+                            >
+                              Salvar
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
                 )}
 
                 {abaConfig === "loja" && (
-                  <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
-                    <label className="block text-[10px] md:text-xs font-black text-muted-foreground mb-1.5 md:mb-2 uppercase">
-                      Horário e Dias de Funcionamento
-                    </label>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        type="text"
-                        value={horarioFuncionamento}
-                        onChange={(e) => setHorarioFuncionamento(e.target.value)}
-                        className="h-9 md:h-10 flex-1 rounded-lg border border-border bg-background px-3 font-bold text-xs md:text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 text-center sm:text-left"
-                        placeholder="Ex: 🕒 Quarta a Domingo | das 18h às 22h."
-                      />
-                      <button
-                        onClick={handleSalvarHorario}
-                        className="h-9 md:h-10 rounded-lg bg-primary px-4 font-black text-[10px] md:text-xs uppercase text-white hover:bg-primary/90 shadow-md transition-all"
-                      >
-                        Salvar
-                      </button>
+                  <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8 mt-4 mx-auto max-w-4xl">
+                    <div className="flex flex-col md:flex-row gap-8 items-start">
+                      {/* Lado Esquerdo: Textos e Instruções */}
+                      <div className="flex-1 space-y-6 w-full md:max-w-sm">
+                        <div>
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="bg-purple-100 p-2.5 rounded-xl text-purple-600">
+                              <Clock size={24} />
+                            </div>
+                            <h3 className="text-xl sm:text-2xl font-black text-foreground">Horário da Loja</h3>
+                          </div>
+                          <p className="text-sm font-semibold text-muted-foreground">
+                            Configure o texto do horário de funcionamento que será exibido aos clientes no catálogo digital e neste painel.
+                          </p>
+                        </div>
+
+                        <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-blue-800 text-xs font-semibold flex gap-3 items-start shadow-sm">
+                          <Store size={18} className="shrink-0 mt-0.5" />
+                          <p>
+                            O botão de "Aberta/Fechada" do painel lateral no PDV é que determina se o sistema aceita pedidos. Este texto aqui serve apenas para informação visual ao cliente.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Lado Direito: Formulários */}
+                      <div className="flex-1 w-full space-y-4">
+                        <div className="bg-muted/30 border border-border rounded-xl p-5 relative overflow-hidden group hover:border-primary/40 transition-colors">
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="bg-background border border-border p-2 rounded-lg shadow-sm">
+                              <CalendarDays size={18} className="text-foreground" />
+                            </div>
+                            <div>
+                              <h4 className="font-black text-sm uppercase text-foreground">Dias e Horários</h4>
+                              <p className="text-[10px] font-semibold text-muted-foreground">Texto em formato livre</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-3">
+                            <div className="relative">
+                              <Clock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                              <input
+                                type="text"
+                                value={horarioFuncionamento}
+                                onChange={(e) => setHorarioFuncionamento(e.target.value)}
+                                placeholder="Ex: 🕒 Quarta a Domingo | das 18h às 22h."
+                                className="h-12 w-full rounded-xl border border-border bg-background pl-9 pr-4 font-bold text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
+                              />
+                            </div>
+                            <button
+                              onClick={handleSalvarHorario}
+                              className="h-12 w-full rounded-xl bg-primary font-black text-xs uppercase text-white hover:bg-primary/90 shadow-md transition-all flex items-center justify-center gap-2"
+                            >
+                              <CheckCircle2 size={18} /> Salvar Horário
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {abaConfig === "whatsapp" && (
+                  <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8 mt-4 mx-auto max-w-4xl">
+                    <div className="flex flex-col md:flex-row gap-8 items-center md:items-start">
+
+                      {/* Lado Esquerdo: Textos e Instruções */}
+                      <div className="flex-1 space-y-6 w-full">
+                        <div>
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="bg-green-100 p-2.5 rounded-xl text-green-600">
+                              <Smartphone size={24} />
+                            </div>
+                            <h3 className="text-xl sm:text-2xl font-black text-foreground">Integração WhatsApp</h3>
+                          </div>
+                          <p className="text-sm font-semibold text-muted-foreground">
+                            Conecte o número oficial da pizzaria para envio automático de atualizações de status dos pedidos aos clientes.
+                          </p>
+                        </div>
+
+                        <div className="bg-muted/30 border border-border rounded-xl p-5 space-y-4">
+                          <h4 className="font-black text-sm uppercase text-foreground">Como conectar:</h4>
+                          <ol className="text-xs sm:text-sm font-semibold text-muted-foreground space-y-3">
+                            <li className="flex gap-2.5 items-start">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-black text-white">1</span>
+                              Clique no botão "Gerar QR Code" abaixo.
+                            </li>
+                            <li className="flex gap-2.5 items-start">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-black text-white">2</span>
+                              Abra o WhatsApp no celular comercial da pizzaria.
+                            </li>
+                            <li className="flex gap-2.5 items-start">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-black text-white">3</span>
+                              Acesse <strong>Configurações {'>'} Aparelhos Conectados {'>'} Conectar um Aparelho</strong>.
+                            </li>
+                            <li className="flex gap-2.5 items-start">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-black text-white">4</span>
+                              Aponte a câmera para o QR Code que aparecerá na tela.
+                            </li>
+                          </ol>
+                        </div>
+
+                        <button
+                          onClick={buscarQrCodeWhatsApp}
+                          disabled={carregandoQr}
+                          className="w-full md:w-auto px-6 h-12 rounded-xl bg-green-600 font-black text-sm uppercase text-white hover:bg-green-700 shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {carregandoQr ? (
+                            <><RefreshCw size={18} className="animate-spin" /> Aguarde...</>
+                          ) : qrCodeBase64 ? (
+                            <><RefreshCw size={18} /> Atualizar QR Code</>
+                          ) : (
+                            <><QrCode size={18} /> Gerar QR Code</>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Lado Direito: QR Code */}
+                      <div className="w-full md:w-[320px] flex flex-col items-center">
+                        <div className="w-full bg-muted/20 border-2 border-dashed border-border rounded-2xl p-6 min-h-[320px] flex flex-col items-center justify-center relative overflow-hidden">
+                          {carregandoQr ? (
+                            <div className="flex flex-col items-center justify-center text-center space-y-4">
+                              <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+                              <p className="text-xs font-black uppercase text-muted-foreground animate-pulse">Solicitando acesso...</p>
+                            </div>
+                          ) : qrCodeBase64 ? (
+                            <div className="bg-white p-4 rounded-xl shadow-xl ring-1 ring-border relative z-10 w-full flex justify-center">
+                              <img src={qrCodeBase64} alt="QR Code WhatsApp" className="w-full max-w-[240px] h-auto object-contain" />
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-center opacity-40 grayscale">
+                              <QrCode size={64} className="mb-4 text-muted-foreground" />
+                              <p className="text-xs font-black uppercase text-muted-foreground">Aguardando geração<br />do código</p>
+                            </div>
+                          )}
+                        </div>
+                        {qrCodeBase64 && !carregandoQr && (
+                          <div className="mt-4 flex items-center justify-center gap-2 text-xs font-black text-amber-600 bg-amber-50 px-4 py-2.5 rounded-lg border border-amber-200 w-full">
+                            <AlertTriangle size={16} />
+                            Escaneie rapidamente, o código expira!
+                          </div>
+                        )}
+                      </div>
+
                     </div>
                   </div>
                 )}
@@ -1374,8 +1642,8 @@ function CaixaPage() {
               <span>{formatDateTime(pedidoParaImprimir.data)}</span>
             </div>
             <div className="linha">
-              <span style={{ flex: "0 0 auto", paddingRight: "8px" }}>Origem:</span>
-              <span className="forte" style={{ whiteSpace: "normal", flex: "1 1 auto", wordBreak: "break-word", textAlign: "right" }}>{pedidoParaImprimir.origem}</span>
+              <span>Origem:</span>
+              <span className="forte">{pedidoParaImprimir.origem}</span>
             </div>
             <div className="divisor-traco"></div>
             <div className="forte" style={{ marginBottom: "4px" }}>ITENS</div>
