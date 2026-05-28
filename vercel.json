@@ -1,6 +1,10 @@
 {
     "rewrites": [
         {
+            "source": "/evolution-api/:match*",
+            "destination": "http://34.29.78.213:8080/:match*"
+        },
+        {
             "source": "/(.*)",
             "destination": "/index.html"
         }
