@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import axios from "axios";
 import {
   CheckCircle2,
   Clock,
@@ -33,12 +34,9 @@ import { collection, onSnapshot, query, doc, updateDoc, setDoc } from "firebase/
 import { db } from "@/services/firebase";
 import logo from "@/assets/logo.jpeg";
 import { pizzas, pasteis, porcoes, bebidas, sucos } from "@/domain/menu/menu";
-import { printTextOnDefaultPrinter } from "@/features/printing/printBridge";
-import { createReceiptText } from "@/features/printing/receiptText";
 import { formatCurrency, formatDateTime } from "@/shared/utils/format";
 
 export function CashierDashboardPage() {
-  // Inicia com o valor salvo no cache (se existir) para evitar a piscada no F5
   const [pinCaixa, setPinCaixa] = useState<string | null>(() => localStorage.getItem("cachedPinCaixa"));
 
   useEffect(() => {
@@ -48,7 +46,6 @@ export function CashierDashboardPage() {
         localStorage.setItem("cachedPinCaixa", pin);
         setPinCaixa(pin);
       } else {
-        // Se não existir senha salva, define como vazio para ninguém entrar com "1234"
         localStorage.setItem("cachedPinCaixa", "");
         setPinCaixa("");
       }
@@ -57,7 +54,6 @@ export function CashierDashboardPage() {
   }, []);
 
   if (pinCaixa === null) {
-    // Tela com fundo liso sem texto para não dar aquele "pulo" visual no primeiro acesso
     return <div className="h-screen w-full bg-background" />;
   }
 
@@ -119,16 +115,11 @@ function CaixaPage() {
   const [esgotados, setEsgotados] = useState<number[]>([]);
   const [inputPinCaixa, setInputPinCaixa] = useState("");
   const [inputPinGarcom, setInputPinGarcom] = useState("");
-  const [horarioFuncionamento, setHorarioFuncionamento] = useState(
-    "🕒Quarta a Domingo | das 18h às 22h.",
-  );
-  const [categoriaConfig, setCategoriaConfig] = useState<
-    "pizzas" | "pasteis" | "porcoes" | "bebidas" | "sucos"
-  >("pizzas");
+  const [horarioFuncionamento, setHorarioFuncionamento] = useState("🕒Quarta a Domingo | das 18h às 22h.");
+  const [categoriaConfig, setCategoriaConfig] = useState<"pizzas" | "pasteis" | "porcoes" | "bebidas" | "sucos">("pizzas");
 
   const [horaAtual, setHoraAtual] = useState(new Date());
 
-  // Novos estados para o QR Code do WhatsApp
   const [qrCodeBase64, setQrCodeBase64] = useState<string | null>(null);
   const [carregandoQr, setCarregandoQr] = useState(false);
 
@@ -153,7 +144,6 @@ function CaixaPage() {
     pedidos.forEach((p) => {
       if (p.status !== "cancelado" && p.status !== "finalizado") {
         if (p.mesa) {
-          // Normaliza o número da mesa (ex: " 05 " vira "5") para evitar duplicidade visual
           let mesaNormalizada = String(p.mesa).trim();
           if (/^\d+$/.test(mesaNormalizada)) {
             mesaNormalizada = parseInt(mesaNormalizada, 10).toString();
@@ -207,17 +197,28 @@ function CaixaPage() {
   const atendimentoAtual = atendimentosAbertos.find((a) => a.id === atendimentoSelecionado);
 
   const imprimirCupom = useCallback(async (pedido: Pedido) => {
-    setPedidoParaImprimir(pedido);
+    const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL || "http://localhost:3001";
 
     try {
-      await printTextOnDefaultPrinter(createReceiptText(pedido));
+      setStatusImpressao(`Enviando pedido para o Motor Local...`);
+      await axios.post(`${impressoraUrl}/imprimir`, {
+        id: pedido.id,
+        data: pedido.data,
+        origem: pedido.origem,
+        cliente: pedido.cliente?.nome || pedido.garcom || "Mesa",
+        telefone: pedido.telefone || pedido.cliente?.telefone || "",
+        total: pedido.total,
+        itens: pedido.itens,
+        observacoes: pedido.observacoes
+      });
+      setStatusImpressao(`Cupom processado!`);
     } catch (error) {
-      console.warn("Ponte de impressao indisponivel. Usando impressao do navegador.", error);
-      setStatusImpressao("Ponte local indisponivel; abrindo impressao do navegador.");
-
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      window.print();
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      console.warn("Ponte local falhou. Usando impressão do navegador.", error);
+      setStatusImpressao("Motor local offline; abrindo tela do Windows.");
+      setPedidoParaImprimir(pedido);
+      setTimeout(() => {
+        window.print();
+      }, 500);
     }
   }, []);
 
@@ -254,9 +255,7 @@ function CaixaPage() {
       impresso: true,
       observacoes: "*** CONFERÊNCIA DE MESA ***",
     };
-    setStatusImpressao(`Imprimindo conferencia: ${atend.titulo}`);
     await imprimirCupom(pedidoConferencia);
-    setStatusImpressao(`Conferencia impressa: ${atend.titulo}`);
   };
 
   const pendentes = pedidos.filter(
@@ -329,7 +328,6 @@ function CaixaPage() {
 
   const imprimirPedido = useCallback(
     async (p: Pedido, m = false) => {
-      setStatusImpressao(m ? `Imprimindo: ${p.origem}` : `Processando: ${p.origem}`);
       try {
         await imprimirCupom(p);
 
@@ -340,10 +338,8 @@ function CaixaPage() {
           });
         }
         setPedidoComFalha(null);
-        setStatusImpressao(`Cupom processado: ${p.origem}`);
       } catch {
         setPedidoComFalha(p);
-        setStatusImpressao("Falha ao processar o pedido.");
       }
     },
     [imprimirCupom],
@@ -506,50 +502,52 @@ function CaixaPage() {
   const alterarStatusEAvisarCliente = async (pedido: Pedido, novoStatus: string) => {
     try {
       await updateDoc(doc(db, "pedidos", pedido.id), { status: novoStatus });
-      setAlerta({
-        titulo: "Status Atualizado",
-        mensagem: `O pedido avançou para: ${novoStatus === "em_preparo" ? "Em Preparo" : novoStatus === "em_rota" ? "Saiu para Entrega" : "Pronto para Retirada"}`,
-        tipo: "sucesso",
-      });
 
       let telefoneCliente = pedido.telefone || pedido.cliente?.telefone;
-
-      if (telefoneCliente) {
-        telefoneCliente = telefoneCliente.replace(/\D/g, '');
-
-        if (!telefoneCliente.startsWith('55')) {
-          telefoneCliente = '55' + telefoneCliente;
-        }
-
-        const nomeCliente = pedido.cliente?.nome || "Cliente";
-        let mensagem = "";
-
-        if (novoStatus === "em_preparo") {
-          mensagem = `Olá ${nomeCliente}! 🍕 Seu pedido já está na cozinha sendo preparado com muito carinho. Avisaremos quando sair!`;
-        } else if (novoStatus === "em_rota") {
-          mensagem = `Oba, ${nomeCliente}! 🛵 Seu pedido acabou de sair para entrega. Fique de olho, nosso entregador está chegando!`;
-        } else if (novoStatus === "pronto") {
-          mensagem = `Olá ${nomeCliente}! 🛍️ Seu pedido já está pronto e embalado, te esperando para retirada no balcão!`;
-        }
-
-        await fetch("/evolution-api/message/sendText/Pizzaria2Irmaos", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": "minha-senha-secreta-123"
-          },
-          body: JSON.stringify({
-            number: telefoneCliente,
-            text: mensagem
-          }),
-        });
-
+      if (!telefoneCliente) {
+        setAlerta({ titulo: "Aviso", mensagem: "Pedido sem telefone cadastrado.", tipo: "aviso" });
+        return;
       }
-    } catch (error) {
+
+      telefoneCliente = telefoneCliente.replace(/\D/g, '');
+      if (!telefoneCliente.startsWith('55')) telefoneCliente = '55' + telefoneCliente;
+
+      const statusFormatado = novoStatus === "em_preparo" ? "Em Preparo" :
+        novoStatus === "em_rota" ? "Saiu para Entrega" :
+          novoStatus === "pronto" ? "Pronto para Retirada" :
+            novoStatus;
+
+      const mensagem = `Olá ${pedido.cliente?.nome || "Cliente"}! 🍕 O status do seu pedido foi atualizado para: *${statusFormatado}*.`;
+
+      const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL || "http://localhost:8080";
+      const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME || "Pizzaria2Irmaos";
+
+      console.log("Tentando enviar para:", telefoneCliente);
+
+      const response = await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, {
+        number: telefoneCliente,
+        text: mensagem,
+        options: {
+          delay: 1000,
+          presence: "composing"
+        }
+      }, {
+        headers: {
+          "apikey": "senha-secreta-jjtech-123",
+          "Content-Type": "application/json"
+        }
+      });
+
+      console.log("Sucesso:", response.data);
+      setAlerta({ titulo: "Sucesso", mensagem: "Notificado!", tipo: "sucesso" });
+
+    } catch (error: any) {
+      console.error("ERRO DETALHADO DA API:", error.response?.data || error.message);
+
       setAlerta({
-        titulo: "Erro",
-        mensagem: "Não foi possível alterar o status do pedido.",
-        tipo: "erro",
+        titulo: "Erro WhatsApp",
+        mensagem: error.response?.data?.message || "Verifique o console (F12)",
+        tipo: "erro"
       });
     }
   };
@@ -568,35 +566,51 @@ function CaixaPage() {
     }
   };
 
-  // Nova função para buscar o QR Code diretamente do backend (via Proxy do Vite)
   const buscarQrCodeWhatsApp = async () => {
     setCarregandoQr(true);
     setQrCodeBase64(null);
+
+    const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL || "http://localhost:8080";
+    const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME || "Pizzaria2Irmaos";
+
+    const headers = {
+      "apikey": "senha-secreta-jjtech-123",
+      "Content-Type": "application/json"
+    };
+
     try {
-      const response = await fetch("/evolution-api/instance/connect/Pizzaria2Irmaos", {
-        method: "GET",
-        headers: {
-          "apikey": "minha-senha-secreta-123"
-        }
-      });
+      const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, { headers });
 
-      const data = await response.json();
-
-      if (data && data.base64) {
-        setQrCodeBase64(data.base64);
+      if (response.data && response.data.base64) {
+        setQrCodeBase64(response.data.base64);
       } else {
+        throw new Error("Instância sem QR Code retornado");
+      }
+    } catch (error: any) {
+      try {
+        const createResponse = await axios.post(`${whatsappUrl}/instance/create`, {
+          instanceName: instancia,
+          qrcode: true
+        }, { headers });
+
+        if (createResponse.data?.qrcode?.base64) {
+          setQrCodeBase64(createResponse.data.qrcode.base64);
+        } else if (createResponse.data?.base64) {
+          setQrCodeBase64(createResponse.data.base64);
+        } else {
+          const retryResponse = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, { headers });
+          if (retryResponse.data && retryResponse.data.base64) {
+            setQrCodeBase64(retryResponse.data.base64);
+          }
+        }
+      } catch (createError) {
+        console.error("Erro ao criar instância:", createError);
         setAlerta({
-          titulo: "Aviso",
-          mensagem: "Não foi possível gerar o QR Code. O celular já está conectado ou a instância precisa ser recriada.",
-          tipo: "aviso"
+          titulo: "Erro Crítico",
+          mensagem: "A Evolution API local não respondeu. Confirme se a tela preta está rodando.",
+          tipo: "erro"
         });
       }
-    } catch (error) {
-      setAlerta({
-        titulo: "Erro",
-        mensagem: "Erro ao comunicar com a Evolution API na nuvem.",
-        tipo: "erro"
-      });
     } finally {
       setCarregandoQr(false);
     }
