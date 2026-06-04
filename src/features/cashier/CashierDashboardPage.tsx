@@ -355,6 +355,32 @@ function CaixaPage() {
             impresso: true,
             impressoEm: new Date().toISOString(),
           });
+
+          // Envia notificação de recebimento pelo WhatsApp assim que impresso pela primeira vez
+          let telefoneCliente = p.telefone || p.cliente?.telefone;
+          if (telefoneCliente) {
+            telefoneCliente = telefoneCliente.replace(/\D/g, '');
+            if (telefoneCliente.length >= 10) {
+              if (!telefoneCliente.startsWith('55')) telefoneCliente = '55' + telefoneCliente;
+
+              const nomeCliente = p.cliente?.nome || "Cliente";
+              const mensagem = `Olá, ${nomeCliente}!\n\nSeu pedido *#${p.id.slice(0, 6).toUpperCase()}* acabou de ser *recebido e impresso* na cozinha da *Pizzaria 2 Irmãos*! 🍕👨‍🍳\n\nLogo começaremos o preparo. Agradecemos a preferência!`;
+
+              const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL || "http://localhost:8080";
+              const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME || "Pizzaria2Irmaos";
+
+              axios.post(`${whatsappUrl}/message/sendText/${instancia}`, {
+                number: telefoneCliente,
+                text: mensagem,
+                options: { delay: 1000, presence: "composing" }
+              }, {
+                headers: {
+                  "apikey": "senha-secreta-jjtech-123",
+                  "Content-Type": "application/json"
+                }
+              }).catch(err => console.error("Erro ao notificar recebimento:", err));
+            }
+          }
         }
         setPedidoComFalha(null);
       } catch {
@@ -526,12 +552,23 @@ function CaixaPage() {
       telefoneCliente = telefoneCliente.replace(/\D/g, '');
       if (!telefoneCliente.startsWith('55')) telefoneCliente = '55' + telefoneCliente;
 
-      const statusFormatado = novoStatus === "em_preparo" ? "Em Preparo" :
-        novoStatus === "em_rota" ? "Saiu para Entrega" :
-          novoStatus === "pronto" ? "Pronto para Retirada" :
-            novoStatus;
+      let mensagem = "";
+      const nomeCliente = pedido.cliente?.nome || "Cliente";
 
-      const mensagem = `Olá ${pedido.cliente?.nome || "Cliente"}! 🍕 O status do seu pedido foi atualizado para: *${statusFormatado}*.`;
+      switch (novoStatus) {
+        case "em_preparo":
+          mensagem = `Olá, ${nomeCliente}! Tudo bem?\n\nSeu pedido na *Pizzaria 2 Irmãos* já está *em preparo* 🍕.\nLogo ele estará pronto!`;
+          break;
+        case "em_rota":
+          mensagem = `Olá, ${nomeCliente}!\n\nÓtima notícia: seu pedido acabou de *sair para entrega* 🛵.\nPrepare-se, em breve ele chegará até você!`;
+          break;
+        case "pronto":
+          mensagem = `Olá, ${nomeCliente}!\n\nSeu pedido já está *pronto para retirada* 🛍️.\nEstamos te aguardando na pizzaria!`;
+          break;
+        default:
+          mensagem = `Olá, ${nomeCliente}!\n\nO status do seu pedido na *Pizzaria 2 Irmãos* foi atualizado para: *${novoStatus}*.`;
+          break;
+      }
 
       const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL || "http://localhost:8080";
       const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME || "Pizzaria2Irmaos";
@@ -860,14 +897,14 @@ function CaixaPage() {
                                 : p.status === "pronto"
                                   ? "bg-green-100 text-green-700"
                                   : p.impresso
-                                    ? "bg-zinc-100 text-zinc-700"
+                                    ? "bg-cyan-100 text-cyan-800"
                                     : "bg-orange-100 text-orange-700 animate-pulse ring-1 ring-orange-300"
                               }`}
                           >
                             {p.status === "em_preparo" ? "🍕 Em Preparo" :
                               p.status === "em_rota" ? "🛵 Em Rota" :
                                 p.status === "pronto" ? "🛍️ Pronto" :
-                                  p.impresso ? "🖨️ Impresso" : "Aguardando"}
+                                  p.impresso ? "✅ Recebido" : "⏳ Aguardando"}
                           </span>
                         </div>
                         <div className="flex gap-1.5 md:gap-2">
@@ -1614,14 +1651,14 @@ function CaixaPage() {
                                     : p.status === "pronto"
                                       ? "bg-green-100 text-green-700"
                                       : p.impresso
-                                        ? "bg-zinc-100 text-zinc-700"
+                                        ? "bg-cyan-100 text-cyan-800"
                                         : "bg-orange-100 text-orange-700 animate-pulse ring-1 ring-orange-300"
                                   }`}
                               >
                                 {p.status === "em_preparo" ? "🍕 Em Preparo" :
                                   p.status === "em_rota" ? "🛵 Em Rota" :
                                     p.status === "pronto" ? "🛍️ Pronto" :
-                                      p.impresso ? "🖨️ Impresso" : "Aberto (Pendente)"}
+                                      p.impresso ? "✅ Recebido" : "⏳ Pendente"}
                               </span>
                             )}
                           </div>
