@@ -162,6 +162,7 @@ export function CustomerOrderPage() {
     "🕒Quarta a Domingo | das 18h às 22h.",
   );
   const [esgotados, setEsgotados] = useState<number[]>([]);
+  const [menuOverrides, setMenuOverrides] = useState<Record<string, any>>({});
 
   // ESTADO DE ALERTA GLOBAL
   const [alerta, setAlerta] = useState<{
@@ -220,9 +221,12 @@ export function CustomerOrderPage() {
   useEffect(() => {
     const unsubscribeLoja = onSnapshot(doc(db, "configuracoes", "loja"), (docSnap) => {
       if (docSnap.exists()) {
-        setLojaAberta(docSnap.data().aberta);
-        if (docSnap.data().horarioFuncionamento) {
-          setHorarioFuncionamento(docSnap.data().horarioFuncionamento);
+        const data = docSnap.data();
+        if (data.aberta !== undefined) {
+          setLojaAberta(data.aberta);
+        }
+        if (data.horarioFuncionamento) {
+          setHorarioFuncionamento(data.horarioFuncionamento);
         }
       } else {
         setLojaAberta(true);
@@ -230,8 +234,10 @@ export function CustomerOrderPage() {
     });
 
     const unsubscribeCardapio = onSnapshot(doc(db, "configuracoes", "cardapio"), (docSnap) => {
-      if (docSnap.exists() && docSnap.data().esgotados) {
-        setEsgotados(docSnap.data().esgotados);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setEsgotados(Array.isArray(data.esgotados) ? data.esgotados : []);
+        setMenuOverrides(typeof data.overrides === 'object' && data.overrides !== null ? data.overrides : {});
       }
     });
 
@@ -400,13 +406,19 @@ export function CustomerOrderPage() {
       return;
     }
 
+    const overrideA = menuOverrides[String(saborA.id)] || {};
+    const overrideB = menuOverrides[String(saborB.id)] || {};
+
+    const precoA = overrideA.prices?.[meiaTamanho] !== undefined ? overrideA.prices[meiaTamanho] : saborA.prices[meiaTamanho];
+    const precoB = overrideB.prices?.[meiaTamanho] !== undefined ? overrideB.prices[meiaTamanho] : saborB.prices[meiaTamanho];
+
     adicionarItem({
       key: `pizza-meia-${meiaTamanho}-${saborA.id}-${saborB.id}`,
       id: saborA.id,
       nome: `Pizza meia ${saborA.name} / ${saborB.name}`,
       categoria: "pizzas",
       tamanho: meiaTamanho,
-      precoUnitario: Math.max(saborA.prices[meiaTamanho], saborB.prices[meiaTamanho]),
+      precoUnitario: Math.max(precoA, precoB),
       meia: { saborA: saborA.name, saborB: saborB.name },
     });
   };
@@ -900,12 +912,14 @@ export function CustomerOrderPage() {
                   </div>
                 </div>
 
-                {pizzas.map((pizza) => {
+                {pizzas.map((pizza: any) => {
                   const esgotado = esgotados.includes(pizza.id);
+                  const override = menuOverrides[String(pizza.id)] || {};
+                  const descricaoPizza = override.ingredientes !== undefined ? override.ingredientes : pizza.description;
                   return (
                     <article
                       key={pizza.id}
-                      className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-all duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
+                      className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-colors duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
                     >
                       {esgotado && (
                         <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm flex items-center gap-1 z-10">
@@ -919,9 +933,9 @@ export function CustomerOrderPage() {
                           </span>
                           {pizza.name}
                         </h3>
-                        {pizza.description && (
+                        {descricaoPizza && (
                           <p className="mt-1 text-sm font-medium text-muted-foreground">
-                            {pizza.description}
+                            {descricaoPizza}
                           </p>
                         )}
                         {pizza.highlight && (
@@ -932,29 +946,32 @@ export function CustomerOrderPage() {
                       </div>
 
                       <div className="grid grid-cols-3 gap-2">
-                        {tamanhosPizza.map((tamanho) => (
-                          <button
-                            key={tamanho}
-                            type="button"
-                            disabled={esgotado}
-                            onClick={() =>
-                              adicionarItem({
-                                key: `pizza-${pizza.id}-${tamanho}`,
-                                id: pizza.id,
-                                nome: `Pizza ${pizza.name}`,
-                                categoria: "pizzas",
-                                tamanho,
-                                precoUnitario: pizza.prices[tamanho],
-                              })
-                            }
-                            className="rounded-lg border-2 border-secondary bg-card px-3 py-2 text-center transition hover:border-primary hover:bg-secondary"
-                          >
-                            <span className="block text-xs font-black text-primary">{tamanho}</span>
-                            <span className="block text-sm font-black text-foreground">
-                              {formatCurrency(pizza.prices[tamanho])}
-                            </span>
-                          </button>
-                        ))}
+                        {tamanhosPizza.map((tamanho) => {
+                          const precoTamanho = override.prices?.[tamanho] !== undefined ? override.prices[tamanho] : pizza.prices[tamanho];
+                          return (
+                            <button
+                              key={tamanho}
+                              type="button"
+                              disabled={esgotado}
+                              onClick={() =>
+                                adicionarItem({
+                                  key: `pizza-${pizza.id}-${tamanho}`,
+                                  id: pizza.id,
+                                  nome: `Pizza ${pizza.name}`,
+                                  categoria: "pizzas",
+                                  tamanho,
+                                  precoUnitario: precoTamanho,
+                                })
+                              }
+                              className="rounded-lg border-2 border-secondary bg-card px-3 py-2 text-center transition hover:border-primary hover:bg-secondary"
+                            >
+                              <span className="block text-xs font-black text-primary">{tamanho}</span>
+                              <span className="block text-sm font-black text-foreground">
+                                {formatCurrency(precoTamanho)}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </article>
                   );
@@ -964,20 +981,24 @@ export function CustomerOrderPage() {
 
             {tab !== "pizzas" && (
               <div className="grid gap-3 sm:grid-cols-2">
-                {(tab === "pasteis"
+                {((tab === "pasteis"
                   ? pasteis
                   : tab === "porcoes"
                     ? porcoes
                     : tab === "bebidas"
                       ? bebidas
                       : sucos
-                ).map((item) => {
+                ) as any[]).map((item: any) => {
                   const esgotado = esgotados.includes(item.id);
+                  const override = menuOverrides[String(item.id)] || {};
+                  const descricaoItem = override.ingredientes !== undefined ? override.ingredientes : (item as any).description;
+                  const precoBase = override.preco !== undefined ? override.preco : item.price;
+
                   if (tab === "sucos") {
                     return (
                       <article
                         key={item.id}
-                        className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-all duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
+                        className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-colors duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
                       >
                         {esgotado && (
                           <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm flex items-center gap-1 z-10">
@@ -1004,7 +1025,7 @@ export function CustomerOrderPage() {
                                 id: item.id,
                                 nome: `Suco ${item.name}`,
                                 categoria: "sucos",
-                                precoUnitario: item.price,
+                                precoUnitario: precoBase,
                               })
                             }
                             className="rounded-lg border border-secondary bg-card px-3 py-2 text-left transition hover:border-primary hover:bg-secondary"
@@ -1013,7 +1034,7 @@ export function CustomerOrderPage() {
                               Natural
                             </span>
                             <span className="block text-sm font-black text-foreground">
-                              {formatCurrency(item.price)}
+                              {formatCurrency(precoBase)}
                             </span>
                           </button>
 
@@ -1026,7 +1047,7 @@ export function CustomerOrderPage() {
                                 id: item.id,
                                 nome: `Suco ${item.name} ao leite`,
                                 categoria: "sucos",
-                                precoUnitario: item.price + SUCO_AO_LEITE_ACRESCIMO,
+                                precoUnitario: precoBase + SUCO_AO_LEITE_ACRESCIMO,
                               })
                             }
                             className="rounded-lg border border-primary bg-secondary px-3 py-2 text-left transition hover:border-primary hover:bg-[var(--brand-yellow-light)]"
@@ -1035,7 +1056,7 @@ export function CustomerOrderPage() {
                               Ao leite
                             </span>
                             <span className="block text-sm font-black text-foreground">
-                              {formatCurrency(item.price + SUCO_AO_LEITE_ACRESCIMO)}
+                              {formatCurrency(precoBase + SUCO_AO_LEITE_ACRESCIMO)}
                             </span>
                           </button>
                         </div>
@@ -1054,10 +1075,10 @@ export function CustomerOrderPage() {
                           id: item.id,
                           nome: item.name,
                           categoria: tab,
-                          precoUnitario: item.price,
+                          precoUnitario: precoBase,
                         })
                       }
-                      className={`relative flex items-center justify-between gap-4 p-4 rounded-xl border-2 text-left transition-all duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
+                      className={`relative flex items-center justify-between gap-4 p-4 rounded-xl border-2 text-left transition-colors duration-200 shadow-sm ${esgotado ? "bg-red-50/50 border-red-200 pointer-events-none" : "bg-card border-border hover:border-primary/40"}`}
                     >
                       {esgotado && (
                         <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm flex items-center gap-1 z-10">
@@ -1069,14 +1090,14 @@ export function CustomerOrderPage() {
                           <span className="mr-2 text-primary">{item.id}.</span>
                           {item.name}
                         </span>
-                        {item.description && (
+                        {descricaoItem && (
                           <span className="mt-1 block text-xs font-medium text-muted-foreground">
-                            {item.description}
+                            {descricaoItem}
                           </span>
                         )}
                       </span>
                       <span className={`shrink-0 rounded-lg px-3 py-2 text-sm font-black ${esgotado ? "bg-red-100 text-red-800/50" : "bg-secondary text-secondary-foreground"}`}>
-                        {formatCurrency(item.price)}
+                        {formatCurrency(precoBase)}
                       </span>
                     </button>
                   );

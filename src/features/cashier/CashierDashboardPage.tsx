@@ -83,6 +83,7 @@ export interface Pedido {
   itens: ItemPedido[];
   subtotal: number;
   taxaEntrega?: number;
+  taxaServico?: number;
   total: number;
   impresso: boolean;
   impressoEm?: string;
@@ -113,6 +114,10 @@ function CaixaPage() {
   const [telaAtiva, setTelaAtiva] = useState<"dashboard" | "config" | "mesas">("mesas");
   const [abaConfig, setAbaConfig] = useState<"estoque" | "senhas" | "loja" | "whatsapp">("estoque");
   const [esgotados, setEsgotados] = useState<number[]>([]);
+  const [menuOverrides, setMenuOverrides] = useState<Record<string, any>>({});
+  const [itemEmEdicao, setItemEmEdicao] = useState<any | null>(null);
+  const [precosEdit, setPrecosEdit] = useState<Record<string, string>>({});
+  const [ingredientesEdit, setIngredientesEdit] = useState<string>("");
   const [inputPinCaixa, setInputPinCaixa] = useState("");
   const [inputPinGarcom, setInputPinGarcom] = useState("");
   const [horarioFuncionamento, setHorarioFuncionamento] = useState("🕒Quarta a Domingo | das 18h às 22h.");
@@ -128,6 +133,15 @@ function CaixaPage() {
     mensagem: string;
     tipo: "sucesso" | "erro" | "aviso";
   } | null>(null);
+
+  const [mensagemFlutuante, setMensagemFlutuante] = useState("");
+  const timeoutFlutuante = useRef<number | null>(null);
+
+  const mostrarMensagemFlutuante = useCallback((msg: string) => {
+    setMensagemFlutuante(msg);
+    if (timeoutFlutuante.current) clearTimeout(timeoutFlutuante.current);
+    timeoutFlutuante.current = window.setTimeout(() => setMensagemFlutuante(""), 2500);
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setHoraAtual(new Date()), 1000);
@@ -209,16 +223,21 @@ function CaixaPage() {
         telefone: pedido.telefone || pedido.cliente?.telefone || "",
         total: pedido.total,
         itens: pedido.itens,
+        taxaServico: pedido.taxaServico,
         observacoes: pedido.observacoes
       });
       setStatusImpressao(`Cupom processado!`);
+
     } catch (error) {
-      console.warn("Ponte local falhou. Usando impressão do navegador.", error);
-      setStatusImpressao("Motor local offline; abrindo tela do Windows.");
-      setPedidoParaImprimir(pedido);
-      setTimeout(() => {
-        window.print();
-      }, 500);
+      console.warn("Falha na ponte local de impressão:", error);
+      setStatusImpressao("Erro na comunicação com a impressora.");
+
+      // ALERTA PROFISSIONAL JJ TECH
+      setAlerta({
+        titulo: "Impressora Offline 🖨️",
+        mensagem: "Não foi possível conectar com a impressora. Verifique se a tela preta do sistema está aberta e se a máquina está ligada.",
+        tipo: "erro"
+      });
     }
   }, []);
 
@@ -382,7 +401,11 @@ function CaixaPage() {
       }
     });
     const unsubCardapio = onSnapshot(doc(db, "configuracoes", "cardapio"), (snap) => {
-      if (snap.exists() && snap.data().esgotados) setEsgotados(snap.data().esgotados);
+      if (snap.exists()) {
+        const data = snap.data();
+        setEsgotados(Array.isArray(data.esgotados) ? data.esgotados : []);
+        setMenuOverrides(typeof data.overrides === 'object' && data.overrides !== null ? data.overrides : {});
+      }
     });
     const unsubSeguranca = onSnapshot(doc(db, "configuracoes", "seguranca"), (snap) => {
       if (snap.exists()) {
@@ -400,11 +423,9 @@ function CaixaPage() {
 
   const handleToggleLoja = async () => {
     const novo = !lojaAberta;
-    setLojaAberta(novo);
     try {
       await setDoc(doc(db, "configuracoes", "loja"), { aberta: novo }, { merge: true });
     } catch {
-      setLojaAberta(!novo);
       setAlerta({
         titulo: "Erro",
         mensagem: "Erro de permissão no Firebase. Verifique as Regras.",
@@ -415,9 +436,8 @@ function CaixaPage() {
 
   const handleToggleEsgotado = async (id: number) => {
     let nova = [...esgotados];
-    if (nova.includes(id)) nova = nova.filter((i) => i !== id);
+    if (nova.includes(id)) nova.splice(nova.indexOf(id), 1);
     else nova.push(id);
-    setEsgotados(nova);
     await setDoc(doc(db, "configuracoes", "cardapio"), { esgotados: nova }, { merge: true });
   };
 
@@ -434,11 +454,7 @@ function CaixaPage() {
     try {
       const updateData = tipo === "caixa" ? { pinCaixa: pin } : { pinGarcom: pin };
       await setDoc(doc(db, "configuracoes", "seguranca"), updateData, { merge: true });
-      setAlerta({
-        titulo: "Sucesso!",
-        mensagem: `A senha do ${tipo === "caixa" ? "Caixa" : "Garçom"} foi alterada com sucesso!`,
-        tipo: "sucesso",
-      });
+      mostrarMensagemFlutuante(`Senha do ${tipo === "caixa" ? "Caixa" : "Garçom"} alterada!`);
     } catch {
       setAlerta({
         titulo: "Erro",
@@ -451,11 +467,7 @@ function CaixaPage() {
   const handleSalvarHorario = async () => {
     try {
       await setDoc(doc(db, "configuracoes", "loja"), { horarioFuncionamento }, { merge: true });
-      setAlerta({
-        titulo: "Sucesso!",
-        mensagem: `O horário de funcionamento foi atualizado!`,
-        tipo: "sucesso",
-      });
+      mostrarMensagemFlutuante("Horário atualizado com sucesso!");
     } catch {
       setAlerta({ titulo: "Erro", mensagem: "Não foi possível salvar o horário.", tipo: "erro" });
     }
@@ -486,7 +498,8 @@ function CaixaPage() {
         .map((i) => (i.key === key ? { ...i, quantidade: i.quantidade + delta } : i))
         .filter((i) => i.quantidade > 0);
       const sub = novos.reduce((acc, i) => acc + i.precoUnitario * i.quantidade, 0);
-      return { ...prev, itens: novos, subtotal: sub, total: sub + (prev.taxaEntrega || 0) };
+      const taxaServ = prev.taxaServico ? sub * 0.1 : 0;
+      return { ...prev, itens: novos, subtotal: sub, taxaServico: taxaServ, total: sub + (prev.taxaEntrega || 0) + taxaServ };
     });
   };
 
@@ -495,7 +508,8 @@ function CaixaPage() {
       if (!prev) return prev;
       const novos = prev.itens.filter((i) => i.key !== key);
       const sub = novos.reduce((acc, i) => acc + i.precoUnitario * i.quantidade, 0);
-      return { ...prev, itens: novos, subtotal: sub, total: sub + (prev.taxaEntrega || 0) };
+      const taxaServ = prev.taxaServico ? sub * 0.1 : 0;
+      return { ...prev, itens: novos, subtotal: sub, taxaServico: taxaServ, total: sub + (prev.taxaEntrega || 0) + taxaServ };
     });
   };
 
@@ -558,6 +572,7 @@ function CaixaPage() {
       await updateDoc(doc(db, "pedidos", draftPedidoEdicao.id), {
         itens: draftPedidoEdicao.itens,
         subtotal: draftPedidoEdicao.subtotal,
+        taxaServico: draftPedidoEdicao.taxaServico || 0,
         total: draftPedidoEdicao.total,
       });
       setDraftPedidoEdicao(null);
@@ -574,19 +589,31 @@ function CaixaPage() {
     const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME || "Pizzaria2Irmaos";
 
     const headers = {
+      // ⚠️ MUITO IMPORTANTE: Essa senha precisa ser IDÊNTICA ao AUTHENTICATION_GLOBAL_KEY do seu .env local!
       "apikey": "senha-secreta-jjtech-123",
       "Content-Type": "application/json"
     };
 
     try {
+      // 1. Tenta conectar ou pegar o status da instância existente
       const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, { headers });
 
+      // Se retornou o base64, ele precisa ler o QR Code
       if (response.data && response.data.base64) {
         setQrCodeBase64(response.data.base64);
+      }
+      // Se retornou que a instância está "open", já está conectado!
+      else if (response.data?.instance?.state === "open") {
+        setAlerta({
+          titulo: "Tudo Certo!",
+          mensagem: "O WhatsApp já está conectado e pronto para enviar mensagens.",
+          tipo: "sucesso"
+        });
       } else {
         throw new Error("Instância sem QR Code retornado");
       }
     } catch (error: any) {
+      // 2. Se deu erro (ex: 404), a instância não existe. Vamos criar na hora!
       try {
         const createResponse = await axios.post(`${whatsappUrl}/instance/create`, {
           instanceName: instancia,
@@ -597,17 +624,12 @@ function CaixaPage() {
           setQrCodeBase64(createResponse.data.qrcode.base64);
         } else if (createResponse.data?.base64) {
           setQrCodeBase64(createResponse.data.base64);
-        } else {
-          const retryResponse = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, { headers });
-          if (retryResponse.data && retryResponse.data.base64) {
-            setQrCodeBase64(retryResponse.data.base64);
-          }
         }
       } catch (createError) {
         console.error("Erro ao criar instância:", createError);
         setAlerta({
-          titulo: "Erro Crítico",
-          mensagem: "A Evolution API local não respondeu. Confirme se a tela preta está rodando.",
+          titulo: "Erro de Conexão",
+          mensagem: "Falha na comunicação com o Motor. Verifique se a sua 'apikey' está igual à do .env do motor.",
           tipo: "erro"
         });
       }
@@ -616,8 +638,53 @@ function CaixaPage() {
     }
   };
 
-  const itensMenuDaCategoria = useMemo(() => {
-    if (categoriaConfig === "pizzas") return pizzas.map((p) => ({ id: p.id, name: p.name }));
+  const abrirModalEdicaoItem = (item: any) => {
+    const override = menuOverrides[String(item.id)] || {};
+    const basePriceObj = item.prices || item.precos || {};
+    const initialPrices: Record<string, string> = {};
+
+    if (Object.keys(basePriceObj).length > 0) {
+      Object.keys(basePriceObj).forEach((k) => {
+        initialPrices[k] = override.prices?.[k] !== undefined ? String(override.prices[k]) : String(basePriceObj[k]);
+      });
+    } else {
+      initialPrices['default'] = override.preco !== undefined ? String(override.preco) : String(item.price || item.preco || 0);
+    }
+
+    setPrecosEdit(initialPrices);
+    setIngredientesEdit(override.ingredientes !== undefined ? override.ingredientes : (item.description || item.descricao || item.ingredientes || ""));
+    setItemEmEdicao(item);
+  };
+
+  const handleSalvarEdicaoItemCardapio = async () => {
+    if (!itemEmEdicao) return;
+    try {
+      const itemAtual = itemEmEdicao;
+      // Fecha o modal e mostra mensagem instantaneamente para UI super fluída
+      setItemEmEdicao(null);
+      mostrarMensagemFlutuante(`${itemAtual.name} atualizado!`);
+
+      const novosOverrides = { ...menuOverrides };
+      const overrideAtual = { ...(novosOverrides[String(itemAtual.id)] || {}) };
+      overrideAtual.ingredientes = ingredientesEdit;
+
+      if (Object.keys(precosEdit).length > 1 || precosEdit['P'] || precosEdit['M'] || itemAtual.prices || itemAtual.precos) {
+        overrideAtual.prices = {};
+        Object.keys(precosEdit).forEach((k) => { overrideAtual.prices[k] = parseFloat(precosEdit[k].replace(',', '.')); });
+      } else {
+        overrideAtual.preco = parseFloat(precosEdit['default'].replace(',', '.'));
+      }
+      novosOverrides[String(itemAtual.id)] = overrideAtual;
+
+      // Salva no Firebase (que vai disparar o listener e atualizar cliente e garçom)
+      await setDoc(doc(db, "configuracoes", "cardapio"), { overrides: novosOverrides }, { merge: true });
+    } catch {
+      setAlerta({ titulo: "Erro", mensagem: "Não foi possível salvar a alteração.", tipo: "erro" });
+    }
+  };
+
+  const itensMenuDaCategoria = useMemo<any[]>(() => {
+    if (categoriaConfig === "pizzas") return pizzas;
     if (categoriaConfig === "pasteis") return pasteis;
     if (categoriaConfig === "porcoes") return porcoes;
     if (categoriaConfig === "bebidas") return bebidas;
@@ -854,6 +921,18 @@ function CaixaPage() {
                             ))}
                           </tbody>
                         </table>
+                        {p.taxaServico ? (
+                          <div className="mt-2 flex justify-between items-center text-sm font-bold text-muted-foreground border-t border-border/50 pt-2">
+                            <span>Taxa de Serviço (10%):</span>
+                            <span>{formatCurrency(p.taxaServico)}</span>
+                          </div>
+                        ) : null}
+                        {p.taxaEntrega ? (
+                          <div className="mt-1 flex justify-between items-center text-sm font-bold text-muted-foreground">
+                            <span>Taxa de Entrega:</span>
+                            <span>{formatCurrency(p.taxaEntrega)}</span>
+                          </div>
+                        ) : null}
                         {p.observacoes && (
                           <div className="mt-3 bg-yellow-50/50 border border-yellow-200 p-3 md:p-4 rounded-xl">
                             <p className="text-[10px] md:text-xs font-black text-yellow-800 uppercase mb-1 flex items-center gap-1.5">
@@ -1028,10 +1107,12 @@ function CaixaPage() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 max-h-[500px] xl:max-h-[600px] overflow-y-auto pr-1">
                           {itensMenuDaCategoria.map((i) => {
                             const esg = esgotados.includes(i.id);
+                            const override = menuOverrides[String(i.id)] || {};
+                            const descricaoItem = override.ingredientes !== undefined ? override.ingredientes : (i.description || i.descricao || i.ingredientes);
                             return (
                               <div
                                 key={i.id}
-                                className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-all duration-200 shadow-sm ${esg ? "bg-red-50/50 border-red-200" : "bg-card border-border hover:border-primary/40"}`}
+                                className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-colors duration-200 shadow-sm ${esg ? "bg-red-50/50 border-red-200" : "bg-card border-border hover:border-primary/40"}`}
                               >
                                 {esg && (
                                   <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm flex items-center gap-1 z-10">
@@ -1042,10 +1123,15 @@ function CaixaPage() {
                                   <h5 className={`font-black text-sm md:text-base leading-tight ${esg ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
                                     {i.name}
                                   </h5>
+                                  {descricaoItem && (
+                                    <p className="text-[10px] font-semibold text-muted-foreground mt-1 line-clamp-2">
+                                      {descricaoItem}
+                                    </p>
+                                  )}
                                 </div>
                                 <button
                                   onClick={() => handleToggleEsgotado(i.id)}
-                                  className={`w-full flex items-center justify-center gap-2 px-3 py-2.5 text-[10px] md:text-xs font-black uppercase rounded-lg transition-all ${esg ? "bg-red-100 text-red-700 hover:bg-red-200 shadow-sm" : "bg-muted/50 text-foreground hover:bg-primary/10 hover:text-primary border border-transparent hover:border-primary/20"}`}
+                                  className={`w-full flex items-center justify-center gap-2 px-3 py-2.5 text-[10px] md:text-xs font-black uppercase rounded-lg transition-colors ${esg ? "bg-red-100 text-red-700 hover:bg-red-200 shadow-sm" : "bg-muted/50 text-foreground hover:bg-primary/10 hover:text-primary border border-transparent hover:border-primary/20"}`}
                                 >
                                   {esg ? (
                                     <><CheckCircle2 size={14} /> Reativar Item</>
@@ -1158,59 +1244,124 @@ function CaixaPage() {
                 )}
 
                 {abaConfig === "loja" && (
-                  <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8 mt-4 mx-auto max-w-4xl">
-                    <div className="flex flex-col md:flex-row gap-8 items-start">
-                      {/* Lado Esquerdo: Textos e Instruções */}
-                      <div className="flex-1 space-y-6 w-full md:max-w-sm">
-                        <div>
-                          <div className="flex items-center gap-3 mb-2">
-                            <div className="bg-purple-100 p-2.5 rounded-xl text-purple-600">
-                              <Clock size={24} />
+                  <div className="space-y-6 mx-auto max-w-4xl mt-4 pb-10">
+                    {/* Card: Horário da Loja */}
+                    <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8">
+                      <div className="flex flex-col md:flex-row gap-8 items-start">
+                        {/* Lado Esquerdo: Textos e Instruções */}
+                        <div className="flex-1 space-y-6 w-full md:max-w-sm">
+                          <div>
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="bg-purple-100 p-2.5 rounded-xl text-purple-600">
+                                <Clock size={24} />
+                              </div>
+                              <h3 className="text-xl sm:text-2xl font-black text-foreground">Horário da Loja</h3>
                             </div>
-                            <h3 className="text-xl sm:text-2xl font-black text-foreground">Horário da Loja</h3>
+                            <p className="text-sm font-semibold text-muted-foreground">
+                              Configure o texto do horário de funcionamento que será exibido aos clientes no catálogo digital e neste painel.
+                            </p>
                           </div>
-                          <p className="text-sm font-semibold text-muted-foreground">
-                            Configure o texto do horário de funcionamento que será exibido aos clientes no catálogo digital e neste painel.
-                          </p>
+
+                          <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-blue-800 text-xs font-semibold flex gap-3 items-start shadow-sm">
+                            <Store size={18} className="shrink-0 mt-0.5" />
+                            <p>
+                              O botão de "Aberta/Fechada" do painel lateral no PDV é que determina se o sistema aceita pedidos. Este texto aqui serve apenas para informação visual ao cliente.
+                            </p>
+                          </div>
                         </div>
 
-                        <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-blue-800 text-xs font-semibold flex gap-3 items-start shadow-sm">
-                          <Store size={18} className="shrink-0 mt-0.5" />
-                          <p>
-                            O botão de "Aberta/Fechada" do painel lateral no PDV é que determina se o sistema aceita pedidos. Este texto aqui serve apenas para informação visual ao cliente.
-                          </p>
+                        {/* Lado Direito: Formulários */}
+                        <div className="flex-1 w-full space-y-4">
+                          <div className="bg-muted/30 border border-border rounded-xl p-5 relative overflow-hidden group hover:border-primary/40 transition-colors">
+                            <div className="flex items-center gap-3 mb-4">
+                              <div className="bg-background border border-border p-2 rounded-lg shadow-sm">
+                                <CalendarDays size={18} className="text-foreground" />
+                              </div>
+                              <div>
+                                <h4 className="font-black text-sm uppercase text-foreground">Dias e Horários</h4>
+                                <p className="text-[10px] font-semibold text-muted-foreground">Texto em formato livre</p>
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-3">
+                              <div className="relative">
+                                <Clock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                                <input
+                                  type="text"
+                                  value={horarioFuncionamento}
+                                  onChange={(e) => setHorarioFuncionamento(e.target.value)}
+                                  placeholder="Ex: 🕒 Quarta a Domingo | das 18h às 22h."
+                                  className="h-12 w-full rounded-xl border border-border bg-background pl-9 pr-4 font-bold text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
+                                />
+                              </div>
+                              <button
+                                onClick={handleSalvarHorario}
+                                className="h-12 w-full rounded-xl bg-primary font-black text-xs uppercase text-white hover:bg-primary/90 shadow-md transition-all flex items-center justify-center gap-2"
+                              >
+                                <CheckCircle2 size={18} /> Salvar Horário
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
+                    </div>
 
-                      {/* Lado Direito: Formulários */}
-                      <div className="flex-1 w-full space-y-4">
-                        <div className="bg-muted/30 border border-border rounded-xl p-5 relative overflow-hidden group hover:border-primary/40 transition-colors">
-                          <div className="flex items-center gap-3 mb-4">
-                            <div className="bg-background border border-border p-2 rounded-lg shadow-sm">
-                              <CalendarDays size={18} className="text-foreground" />
+                    {/* --- NOVO: MODO PROFISSIONAL - EDIÇÃO DE CARDÁPIO --- */}
+                    <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8">
+                      <div className="flex flex-col md:flex-row gap-8 items-start">
+                        {/* Lado Esquerdo */}
+                        <div className="flex-1 space-y-6 w-full md:max-w-sm">
+                          <div>
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-600">
+                                <Edit3 size={24} />
+                              </div>
+                              <h3 className="text-xl sm:text-2xl font-black text-foreground">Edição de Cardápio</h3>
                             </div>
-                            <div>
-                              <h4 className="font-black text-sm uppercase text-foreground">Dias e Horários</h4>
-                              <p className="text-[10px] font-semibold text-muted-foreground">Texto em formato livre</p>
-                            </div>
+                            <p className="text-sm font-semibold text-muted-foreground">
+                              Altere preços e a descrição/ingredientes dos produtos. As atualizações refletem imediatamente no catálogo do cliente e no app do garçom.
+                            </p>
                           </div>
-                          <div className="flex flex-col gap-3">
-                            <div className="relative">
-                              <Clock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                              <input
-                                type="text"
-                                value={horarioFuncionamento}
-                                onChange={(e) => setHorarioFuncionamento(e.target.value)}
-                                placeholder="Ex: 🕒 Quarta a Domingo | das 18h às 22h."
-                                className="h-12 w-full rounded-xl border border-border bg-background pl-9 pr-4 font-bold text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
-                              />
-                            </div>
-                            <button
-                              onClick={handleSalvarHorario}
-                              className="h-12 w-full rounded-xl bg-primary font-black text-xs uppercase text-white hover:bg-primary/90 shadow-md transition-all flex items-center justify-center gap-2"
-                            >
-                              <CheckCircle2 size={18} /> Salvar Horário
-                            </button>
+                          <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-emerald-800 text-xs font-semibold flex gap-3 items-start shadow-sm">
+                            <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
+                            <p>Modo Profissional: As alterações realizadas nesta seção são sincronizadas instantaneamente com o catálogo digital e os terminais de atendimento.</p>
+                          </div>
+                        </div>
+
+                        {/* Lado Direito */}
+                        <div className="flex-1 w-full bg-muted/30 border border-border rounded-xl p-5">
+                          <div className="flex gap-2 overflow-x-auto pb-3 mb-3 border-b border-border scrollbar-hide">
+                            {(["pizzas", "pasteis", "porcoes", "bebidas", "sucos"] as const).map((t) => (
+                              <button
+                                key={t}
+                                onClick={() => setCategoriaConfig(t)}
+                                className={`flex-shrink-0 px-4 py-2 text-xs font-black rounded-lg capitalize transition-all border ${categoriaConfig === t ? "bg-primary border-primary text-white shadow-sm" : "bg-card border-border text-muted-foreground hover:bg-muted"}`}
+                              >
+                                {t}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="max-h-[350px] overflow-y-auto space-y-2 pr-2">
+                            {itensMenuDaCategoria.map(item => {
+                              const override = menuOverrides[String(item.id)] || {};
+                              return (
+                                <div key={item.id} className="flex justify-between items-center p-3 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors shadow-sm">
+                                  <div className="flex-1 pr-3">
+                                    <p className="text-sm font-black text-foreground">
+                                      {item.name}
+                                    </p>
+                                    <p className="text-[10px] font-semibold text-muted-foreground line-clamp-1 mt-0.5">
+                                      {override.ingredientes !== undefined ? override.ingredientes : (item.description || item.descricao || item.ingredientes || "Sem descrição")}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => abrirModalEdicaoItem(item)}
+                                    className="h-8 px-3 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 text-xs font-black uppercase hover:bg-blue-100 shrink-0 transition-colors"
+                                  >
+                                    Editar
+                                  </button>
+                                </div>
+                              )
+                            })}
                           </div>
                         </div>
                       </div>
@@ -1528,6 +1679,15 @@ function CaixaPage() {
         </main>
       </div>
 
+      {mensagemFlutuante && (
+        <div
+          className="fixed right-4 top-24 z-[110] flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-800 shadow-lg animate-in slide-in-from-right-5 fade-in duration-300"
+        >
+          <CheckCircle2 size={18} />
+          {mensagemFlutuante}
+        </div>
+      )}
+
       {alerta && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl bg-card p-6 text-center shadow-2xl border border-border">
@@ -1608,6 +1768,56 @@ function CaixaPage() {
         </div>
       )}
 
+      {itemEmEdicao && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-card p-6 shadow-2xl border border-border">
+            <div className="mb-4 flex justify-between items-center border-b border-border pb-3">
+              <div>
+                <h2 className="text-xl font-black text-foreground">{itemEmEdicao.name}</h2>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase mt-0.5">Modo de Edição Profissional</p>
+              </div>
+              <button
+                onClick={() => setItemEmEdicao(null)}
+                className="p-2 bg-muted hover:bg-red-100 hover:text-red-600 rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-5 mt-2">
+              <div>
+                <label className="text-xs font-black uppercase text-muted-foreground mb-1.5 block">Ingredientes / Descrição</label>
+                <textarea
+                  value={ingredientesEdit}
+                  onChange={(e) => setIngredientesEdit(e.target.value)}
+                  placeholder="Descreva o item ou liste os ingredientes..."
+                  className="w-full rounded-xl border border-border bg-background p-3 text-sm font-semibold outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner resize-none h-24"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-black uppercase text-muted-foreground mb-1.5 block">Preço(s) Atual(is)</label>
+                <div className="space-y-2">
+                  {Object.keys(precosEdit).map(key => (
+                    <div key={key} className="flex items-center gap-2">
+                      {key !== 'default' && (
+                        <span className="w-12 text-xs font-black bg-muted text-center py-2.5 rounded-lg border border-border text-foreground">{key}</span>
+                      )}
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-bold">R$</span>
+                        <input type="number" step="0.01" value={precosEdit[key]} onChange={(e) => setPrecosEdit(prev => ({ ...prev, [key]: e.target.value }))} className="h-11 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm font-black outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button onClick={handleSalvarEdicaoItemCardapio} className="w-full mt-6 rounded-xl bg-primary py-3.5 text-sm font-black uppercase text-white shadow-md hover:bg-primary/90 hover:shadow-lg hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
+              <CheckCircle2 size={18} /> Salvar Alterações
+            </button>
+          </div>
+        </div>
+      )}
+
       {pedidoParaCancelar && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl bg-card p-6 text-center shadow-2xl border">
@@ -1669,6 +1879,12 @@ function CaixaPage() {
                 <span>{formatCurrency(i.precoUnitario * i.quantidade)}</span>
               </div>
             ))}
+            {pedidoParaImprimir.taxaServico ? (
+              <div className="linha">
+                <span>Taxa de Serviço:</span>
+                <span>{formatCurrency(pedidoParaImprimir.taxaServico)}</span>
+              </div>
+            ) : null}
             <div className="divisor-traco"></div>
             <div className="linha forte" style={{ fontSize: "13pt", marginTop: "4px" }}>
               <span>TOTAL:</span>
