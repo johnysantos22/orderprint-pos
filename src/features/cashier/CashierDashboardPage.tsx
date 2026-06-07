@@ -657,29 +657,42 @@ function CaixaPage() {
     const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
     const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
 
-    const config = { headers: { "apikey": apiKey, "Content-Type": "application/json" } };
+    // Configuração correta do cabeçalho do Axios
+    const config = {
+      headers: {
+        "apikey": apiKey,
+        "Content-Type": "application/json"
+      }
+    };
 
     try {
-      // FORÇA A ATUALIZAÇÃO DO QR CODE NO MOTOR ANTES DE PEGAR
-      // Às vezes o motor precisa de um "empurrão" para gerar o QR novamente
-      await axios.put(`${whatsappUrl}/instance/updateQrCode/${instancia}`, {}, config);
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Pequena pausa
-
+      // 1. Tenta conectar ou pegar o status
       const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, config);
 
-      if (response.data?.base64) {
+      if (response.data && response.data.base64) {
         setQrCodeBase64(response.data.base64);
-      } else if (response.data?.qrcode?.base64) {
-        setQrCodeBase64(response.data.qrcode.base64);
       } else if (response.data?.instance?.state === "open") {
-        setAlerta({ titulo: "Conectado!", mensagem: "WhatsApp já está online.", tipo: "sucesso" });
-      } else {
-        // Se ainda assim não veio, avisa o erro
-        setAlerta({ titulo: "Aviso", mensagem: "O motor não gerou o QR Code. Tente reiniciar a instância no Manager.", tipo: "aviso" });
+        setAlerta({ titulo: "Tudo Certo!", mensagem: "WhatsApp já conectado.", tipo: "sucesso" });
       }
     } catch (error: any) {
-      console.error("Erro ao buscar QR:", error);
-      setAlerta({ titulo: "Erro", mensagem: "Não foi possível buscar o QR Code. Verifique o Motor.", tipo: "erro" });
+      // 2. Se falhar, tenta criar a instância
+      try {
+        const createResponse = await axios.post(`${whatsappUrl}/instance/create`, {
+          instanceName: instancia,
+          qrcode: true
+        }, config);
+
+        if (createResponse.data?.qrcode?.base64) {
+          setQrCodeBase64(createResponse.data.qrcode.base64);
+        }
+      } catch (createError) {
+        console.error("Erro ao criar instância:", createError);
+        setAlerta({
+          titulo: "Erro de Conexão",
+          mensagem: "Verifique se a API KEY no .env do motor é igual à do .env do site.",
+          tipo: "erro"
+        });
+      }
     } finally {
       setCarregandoQr(false);
     }
