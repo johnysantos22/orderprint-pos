@@ -211,7 +211,8 @@ function CaixaPage() {
   const atendimentoAtual = atendimentosAbertos.find((a) => a.id === atendimentoSelecionado);
 
   const imprimirCupom = useCallback(async (pedido: Pedido) => {
-    const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL || "http://localhost:3001";
+    // VARIÁVEL DE AMBIENTE PROTEGIDA SEM ||
+    const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
 
     try {
       setStatusImpressao(`Enviando pedido para o Motor Local...`);
@@ -232,7 +233,6 @@ function CaixaPage() {
       console.warn("Falha na ponte local de impressão:", error);
       setStatusImpressao("Erro na comunicação com a impressora.");
 
-      // ALERTA PROFISSIONAL JJ TECH
       setAlerta({
         titulo: "Impressora Offline 🖨️",
         mensagem: "Não foi possível conectar com a impressora. Verifique se a tela preta do sistema está aberta e se a máquina está ligada.",
@@ -366,19 +366,33 @@ function CaixaPage() {
               const nomeCliente = p.cliente?.nome || "Cliente";
               const mensagem = `Olá, ${nomeCliente}!\n\nSeu pedido *#${p.id.slice(0, 6).toUpperCase()}* acabou de ser *recebido e impresso* na cozinha da *Pizzaria 2 Irmãos*! 🍕👨‍🍳\n\nLogo começaremos o preparo. Agradecemos a preferência!`;
 
-              const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL || "http://localhost:8080";
-              const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME || "Pizzaria2Irmaos";
+              // VARIÁVEIS DE AMBIENTE PROTEGIDAS SEM ||
+              const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL;
+              const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
+              const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
 
-              axios.post(`${whatsappUrl}/message/sendText/${instancia}`, {
+              const payload = {
                 number: telefoneCliente,
                 text: mensagem,
-                options: { delay: 1000, presence: "composing" }
-              }, {
+                options: { delay: 1200, presence: "composing" }
+              };
+
+              const configAxios = {
                 headers: {
-                  "apikey": "senha-secreta-jjtech-123",
+                  "apikey": apiKey,
                   "Content-Type": "application/json"
                 }
-              }).catch(err => console.error("Erro ao notificar recebimento:", err));
+              };
+
+              // TENTATIVA DUPLA (AUTO-RETRY) DE SEGURANÇA
+              try {
+                await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
+              } catch (err) {
+                console.warn("Primeira tentativa de notificação falhou (Sincronização WhatsApp). Tentando novamente em 2s...");
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios)
+                  .catch(errDefinitivo => console.error("Erro definitivo ao notificar recebimento:", errDefinitivo));
+              }
             }
           }
         }
@@ -570,34 +584,51 @@ function CaixaPage() {
           break;
       }
 
-      const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL || "http://localhost:8080";
-      const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME || "Pizzaria2Irmaos";
+      // VARIÁVEIS DE AMBIENTE PROTEGIDAS SEM ||
+      const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL;
+      const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
+      const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
 
-      console.log("Tentando enviar para:", telefoneCliente);
-
-      const response = await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, {
+      const payload = {
         number: telefoneCliente,
         text: mensagem,
-        options: {
-          delay: 1000,
-          presence: "composing"
-        }
-      }, {
+        options: { delay: 1200, presence: "composing" }
+      };
+
+      const configAxios = {
         headers: {
-          "apikey": "senha-secreta-jjtech-123",
+          "apikey": apiKey,
           "Content-Type": "application/json"
         }
-      });
+      };
 
-      console.log("Sucesso:", response.data);
-      setAlerta({ titulo: "Sucesso", mensagem: "Notificado!", tipo: "sucesso" });
+      // TENTATIVA DUPLA (AUTO-RETRY) DO WHATSAPP
+      try {
+        await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
+        console.log("Sucesso no envio de Status (Tentativa 1)");
+        setAlerta({ titulo: "Sucesso", mensagem: "Cliente Notificado!", tipo: "sucesso" });
+      } catch (erroPrimeira) {
+        console.warn("Falha na sincronização (Bad MAC). Aguardando 2s para tentar novamente...");
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+          await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
+          console.log("Sucesso no envio de Status (Tentativa 2)");
+          setAlerta({ titulo: "Sucesso", mensagem: "Cliente Notificado!", tipo: "sucesso" });
+        } catch (erroSegunda: any) {
+          console.error("ERRO DETALHADO DA API (2a tentativa):", erroSegunda.response?.data || erroSegunda.message);
+          setAlerta({
+            titulo: "Erro WhatsApp",
+            mensagem: erroSegunda.response?.data?.message || "Não foi possível notificar o cliente.",
+            tipo: "erro"
+          });
+        }
+      }
 
     } catch (error: any) {
-      console.error("ERRO DETALHADO DA API:", error.response?.data || error.message);
-
+      console.error("ERRO NO BANCO OU CONFIGURAÇÃO:", error);
       setAlerta({
-        titulo: "Erro WhatsApp",
-        mensagem: error.response?.data?.message || "Verifique o console (F12)",
+        titulo: "Erro de Sistema",
+        mensagem: "Erro ao atualizar o status do pedido.",
         tipo: "erro"
       });
     }
@@ -622,12 +653,13 @@ function CaixaPage() {
     setCarregandoQr(true);
     setQrCodeBase64(null);
 
-    const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL || "http://localhost:8080";
-    const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME || "Pizzaria2Irmaos";
+    // VARIÁVEIS DE AMBIENTE PROTEGIDAS SEM ||
+    const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL;
+    const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
+    const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
 
     const headers = {
-      // ⚠️ MUITO IMPORTANTE: Essa senha precisa ser IDÊNTICA ao AUTHENTICATION_GLOBAL_KEY do seu .env local!
-      "apikey": "senha-secreta-jjtech-123",
+      "apikey": apiKey,
       "Content-Type": "application/json"
     };
 
