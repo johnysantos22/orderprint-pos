@@ -653,52 +653,43 @@ function CaixaPage() {
     setCarregandoQr(true);
     setQrCodeBase64(null);
 
-    // VARIÁVEIS DE AMBIENTE PROTEGIDAS SEM ||
     const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL;
     const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
     const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
 
-    const headers = {
-      "apikey": apiKey,
-      "Content-Type": "application/json"
+    // Configuração correta do cabeçalho do Axios
+    const config = {
+      headers: {
+        "apikey": apiKey,
+        "Content-Type": "application/json"
+      }
     };
 
     try {
-      // 1. Tenta conectar ou pegar o status da instância existente
-      const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, { headers });
+      // 1. Tenta conectar ou pegar o status
+      const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, config);
 
-      // Se retornou o base64, ele precisa ler o QR Code
       if (response.data && response.data.base64) {
         setQrCodeBase64(response.data.base64);
-      }
-      // Se retornou que a instância está "open", já está conectado!
-      else if (response.data?.instance?.state === "open") {
-        setAlerta({
-          titulo: "Tudo Certo!",
-          mensagem: "O WhatsApp já está conectado e pronto para enviar mensagens.",
-          tipo: "sucesso"
-        });
-      } else {
-        throw new Error("Instância sem QR Code retornado");
+      } else if (response.data?.instance?.state === "open") {
+        setAlerta({ titulo: "Tudo Certo!", mensagem: "WhatsApp já conectado.", tipo: "sucesso" });
       }
     } catch (error: any) {
-      // 2. Se deu erro (ex: 404), a instância não existe. Vamos criar na hora!
+      // 2. Se falhar, tenta criar a instância
       try {
         const createResponse = await axios.post(`${whatsappUrl}/instance/create`, {
           instanceName: instancia,
           qrcode: true
-        }, { headers });
+        }, config);
 
         if (createResponse.data?.qrcode?.base64) {
           setQrCodeBase64(createResponse.data.qrcode.base64);
-        } else if (createResponse.data?.base64) {
-          setQrCodeBase64(createResponse.data.base64);
         }
       } catch (createError) {
         console.error("Erro ao criar instância:", createError);
         setAlerta({
           titulo: "Erro de Conexão",
-          mensagem: "Falha na comunicação com o Motor. Verifique se a sua 'apikey' está igual à do .env do motor.",
+          mensagem: "Verifique se a API KEY no .env do motor é igual à do .env do site.",
           tipo: "erro"
         });
       }
