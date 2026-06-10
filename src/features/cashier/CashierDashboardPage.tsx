@@ -220,11 +220,21 @@ function CaixaPage() {
         id: pedido.id,
         data: pedido.data,
         origem: pedido.origem,
-        cliente: pedido.cliente?.nome || pedido.garcom || "Mesa",
+        cliente: pedido.cliente?.nome || pedido.garcom || "Balcão",
         telefone: pedido.telefone || pedido.cliente?.telefone || "",
+
+        // --- NOVOS CAMPOS ENVIADOS PARA A IMPRESSORA ---
+        endereco: pedido.cliente?.endereco || "",
+        mesa: pedido.mesa || "",
+        tipoEntrega: pedido.tipoEntrega || "",
+        pagamento: pedido.pagamento || "A DEFINIR",
+        // -----------------------------------------------
+
+        subtotal: pedido.subtotal || pedido.total,
+        taxaEntrega: pedido.taxaEntrega || 0,
         total: pedido.total,
         itens: pedido.itens,
-        taxaServico: pedido.taxaServico,
+        taxaServico: pedido.taxaServico || 0,
         observacoes: pedido.observacoes
       });
       setStatusImpressao(`Cupom processado!`);
