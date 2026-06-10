@@ -212,13 +212,17 @@
 @media print {
   @page {
     size: 58mm auto;
-    margin: 2mm;
+    margin: 0;
+    /* 1. Zerado para o Windows não empurrar papel extra */
   }
 
   html,
   body {
     background: #fff !important;
     color: #000 !important;
+    margin: 0 !important;
+    /* 2. Remove margens invisíveis do navegador */
+    padding: 0 !important;
   }
 
   .no-print {
@@ -228,14 +232,13 @@
   .print-ticket {
     display: block !important;
     width: 48mm;
-    /* Mudei de 72mm para 48mm para caber na margem */
     margin: 0 auto;
     color: #000;
     font-family: "Courier New", ui-monospace, monospace;
     font-size: 8pt;
-    /* Fonte um pouco menor para caber na bobina de 58mm */
     line-height: 1.2;
-    padding-bottom: 4mm;
+    padding-bottom: 0;
+    /* 3. Remove o espaçamento de 4mm que estava sobrando */
   }
 
   .print-ticket img {
