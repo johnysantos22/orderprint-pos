@@ -233,7 +233,7 @@ function CaixaPage() {
       const isAcrescimo = origemDoPedido.includes("ACRÉSCIMO") || origemDoPedido.includes("ACRESCIMO");
       const isCorrecao = origemDoPedido.includes("CORREÇÃO") || origemDoPedido.includes("CORRECAO") || origemDoPedido.includes("RETIRADA");
 
-      // --- NOME E MESA ---
+      // --- 1. DEFINE A MESA OU O NOME ---
       let nomeParaImpressao = opcoes.pessoa || pedido.cliente?.nome || pedido.garcom || "Balcao";
 
       if (pedido.mesa && !conferencia) {
@@ -246,11 +246,11 @@ function CaixaPage() {
         }
       }
 
-      // --- ENDEREÇO E PAGAMENTO ABAIXO DO TELEFONE ---
+      // --- 2. DEFINE O TELEFONE E GRUDA O ENDEREÇO E PAGAMENTO ---
       let telefoneParaImpressao = pedido.telefone || pedido.cliente?.telefone || "";
 
       if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
-        const enderecoTxt = `Endereco: ${pedido.cliente.endereco}`;
+        const enderecoTxt = `Endereco de Entrega: ${pedido.cliente.endereco}`;
         telefoneParaImpressao = telefoneParaImpressao
           ? `${telefoneParaImpressao}\n${enderecoTxt}`
           : `\n${enderecoTxt}`;
@@ -263,7 +263,7 @@ function CaixaPage() {
           : `\n${pagFormatado}`;
       }
 
-      // --- OBSERVAÇÕES E O OBRIGADO PELA PREFERÊNCIA ---
+      // --- 3. OBSERVAÇÕES E O AGRADECIMENTO ---
       let observacoesParaImpressao = pedido.observacoes || "";
 
       if (isAcrescimo && !conferencia) {
@@ -274,30 +274,40 @@ function CaixaPage() {
         observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
       }
 
-      const agradecimento = "Obrigado pela preferencia!";
+      // O texto que VOCÊ quer que saia no papel
+      const agradecimento = "*** NAO E FISCAL ***\nObrigado pela preferencia!\nVolte sempre!";
+
+      // Aqui o truque: a gente junta a observação com o agradecimento
       observacoesParaImpressao = observacoesParaImpressao
         ? `${observacoesParaImpressao}\n\n${agradecimento}`
         : agradecimento;
 
+      // Imprime na tela do navegador caso não use a tela preta
+      setPedidoParaImprimir(pedido);
+      setTimeout(() => {
+        window.print();
+        setPedidoParaImprimir(null);
+      }, 500);
+
       try {
         setStatusImpressao(`Enviando pedido para o Motor Local...`);
 
+        // --- 4. O AXIOS QUE MANDA PRA TELA PRETA ---
         await axios.post(`${impressoraUrl}/imprimir`, {
           id: removerAcentos(pedido.id),
           data: pedido.data,
           origem: removerAcentos(origemDoPedido),
           cliente: removerAcentos(nomeParaImpressao),
-          telefone: removerAcentos(telefoneParaImpressao),
+          telefone: removerAcentos(telefoneParaImpressao), // Envia Telefone + Endereço + Pagamento
           total: pedido.total,
           itens: pedido.itens.map(item => ({
             ...item,
             nome: removerAcentos(item.nome),
             tamanho: item.tamanho ? removerAcentos(item.tamanho) : item.tamanho
           })),
-          taxaServico: 0, // <-- TAXA ZERADA PRO PAPEL
-          observacoes: removerAcentos(observacoesParaImpressao),
-
-          // --- FORÇANDO O MOTOR A CORTAR O ESPAÇO EM BRANCO ---
+          taxaServico: 0,
+          observacoes: removerAcentos(observacoesParaImpressao), // <-- Envia a Observação + O Agradecimento!
+          rodape: removerAcentos(agradecimento), // <-- Mandamos um extra caso a sua tela preta tenha isso programado
           linhasCorte: 0,
           bottomFeedLines: 0,
           espacoCorteMm: 0
