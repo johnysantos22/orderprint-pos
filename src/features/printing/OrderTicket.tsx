@@ -1,3 +1,5 @@
+import logo from "@/assets/logo.jpeg";
+
 type Item = {
   key: string;
   name: string;
@@ -39,6 +41,7 @@ export function OrderTicket({
   return (
     <div className="print-ticket">
       {/* --- CABEÇALHO --- */}
+      <img src={logo} alt="Logo" />
       <div className="t-center t-bold t-xl">PIZZARIA 2 IRMÃOS</div>
       <div className="t-center t-md">Tel: (84) 99813-5262</div>
       <div className="t-divider">================================</div>

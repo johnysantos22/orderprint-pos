@@ -75,7 +75,7 @@ O sistema é dividido em três módulos principais para atender a diferentes flu
 
 O sistema foi desenhado para contornar a limitação de impressão padrão dos navegadores (que abrem a janela de pré-visualização). 
 
-Ele faz requisições `POST` para `http://localhost:3333/print`. Para que isso funcione no ambiente de produção/caixa, é necessário rodar um script em Node.js ou Python atuando como "Bridge" (Ponte) na máquina local, recebendo esse JSON e enviando os comandos de texto plano (ESC/POS) direto para a impressora USB térmica.
+Ele faz requisições `POST` para `http://localhost:3001/imprimir` (também aceita `POST /print` para texto pronto). Para que isso funcione no ambiente de produção/caixa, é necessário rodar a ponte local com `npm run print:bridge`, recebendo esse JSON e enviando o cupom direto para a impressora térmica do Windows.
 
 *(Nota: Caso a ponte local esteja offline, o sistema possui um fallback elegante que abre o painel de impressão nativo do navegador).*
 

@@ -96,6 +96,15 @@ export interface Pedido {
   telefone?: string;
 }
 
+interface ImprimirCupomOptions {
+  tipoCupom?: "pedido" | "conferencia";
+  rotuloPessoa?: "Cliente" | "Atendente";
+  pessoa?: string;
+  titulo?: string;
+  origem?: string;
+  mesa?: string;
+}
+
 function CaixaPage() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [pedidoParaImprimir, setPedidoParaImprimir] = useState<Pedido | null>(null);
@@ -104,6 +113,7 @@ function CaixaPage() {
   const [somAtivo, setSomAtivo] = useState(false);
   const imprimindoRef = useRef(false);
   const pedidosRef = useRef<Pedido[]>([]);
+  const logoBase64Ref = useRef<string | null>(null);
 
   const [lojaAberta, setLojaAberta] = useState(true);
   const [draftPedidoEdicao, setDraftPedidoEdicao] = useState<Pedido | null>(null);
@@ -141,6 +151,27 @@ function CaixaPage() {
     setMensagemFlutuante(msg);
     if (timeoutFlutuante.current) clearTimeout(timeoutFlutuante.current);
     timeoutFlutuante.current = window.setTimeout(() => setMensagemFlutuante(""), 2500);
+  }, []);
+
+  const carregarLogoBase64 = useCallback(async () => {
+    if (logoBase64Ref.current) return logoBase64Ref.current;
+
+    try {
+      const response = await fetch(logo);
+      const blob = await response.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+
+      logoBase64Ref.current = dataUrl;
+      return dataUrl;
+    } catch (error) {
+      console.warn("Nao foi possivel carregar a logo para impressao:", error);
+      return "";
+    }
   }, []);
 
   useEffect(() => {
@@ -210,55 +241,75 @@ function CaixaPage() {
 
   const atendimentoAtual = atendimentosAbertos.find((a) => a.id === atendimentoSelecionado);
 
-  const imprimirCupom = useCallback(async (pedido: Pedido) => {
-    const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
+  const imprimirCupom = useCallback(
+    async (pedido: Pedido, opcoes: ImprimirCupomOptions = {}) => {
+      const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
+      const tipoCupom = opcoes.tipoCupom ?? "pedido";
+      const conferencia = tipoCupom === "conferencia";
+      const rotuloPessoa =
+        opcoes.rotuloPessoa ?? (pedido.garcom && !pedido.cliente?.nome ? "Atendente" : "Cliente");
 
-    // --- O TRUQUE: Injetar as informações novas nos campos antigos ---
+      let nomeParaImpressao = opcoes.pessoa || pedido.cliente?.nome || pedido.garcom || "Balcao";
+      if (pedido.mesa && !conferencia) {
+        nomeParaImpressao = `MESA ${pedido.mesa} - ${nomeParaImpressao}`;
+      }
 
-    // 1. Embutindo a MESA no nome do cliente
-    let nomeParaImpressao = pedido.cliente?.nome || pedido.garcom || "Balcão";
-    if (pedido.mesa) {
-      nomeParaImpressao = `MESA ${pedido.mesa} - ${nomeParaImpressao}`;
-    }
+      let observacoesParaImpressao = pedido.observacoes || "";
+      if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
+        const enderecoFormatado = `ENDERECO: ${pedido.cliente.endereco}`;
+        observacoesParaImpressao = observacoesParaImpressao
+          ? `${enderecoFormatado} | OBS: ${observacoesParaImpressao}`
+          : enderecoFormatado;
+      }
 
-    // 2. Embutindo o ENDEREÇO nas observações
-    let observacoesParaImpressao = pedido.observacoes || "";
-    if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
-      const enderecoFormatado = `ENDEREÇO: ${pedido.cliente.endereco}`;
-      observacoesParaImpressao = observacoesParaImpressao
-        ? `${enderecoFormatado} | OBS: ${observacoesParaImpressao}`
-        : enderecoFormatado;
-    }
+      try {
+        setStatusImpressao(`Enviando pedido para o Motor Local...`);
+        const logoBase64 = await carregarLogoBase64();
 
-    try {
-      setStatusImpressao(`Enviando pedido para o Motor Local...`);
+        await axios.post(`${impressoraUrl}/imprimir`, {
+          id: pedido.id,
+          data: pedido.data,
+          origem: opcoes.origem ?? pedido.origem,
+          tipoCupom,
+          titulo: opcoes.titulo ?? (conferencia ? "*** CONFERENCIA ***" : "PEDIDO"),
+          rotuloPessoa,
+          rotuloCliente: rotuloPessoa,
+          labelCliente: rotuloPessoa,
+          cliente: nomeParaImpressao,
+          atendente: rotuloPessoa === "Atendente" ? nomeParaImpressao : (pedido.garcom || ""),
+          garcom: pedido.garcom || "",
+          mesa: opcoes.mesa ?? pedido.mesa ?? "",
+          telefone: pedido.telefone || pedido.cliente?.telefone || "",
+          subtotal: pedido.subtotal,
+          taxaEntrega: pedido.taxaEntrega,
+          total: pedido.total,
+          itens: pedido.itens,
+          taxaServico: pedido.taxaServico,
+          observacoes: observacoesParaImpressao,
+          logoBase64,
+          logoDataUrl: logoBase64,
+          imprimirLogo: true,
+          logoPretoBranco: true,
+          linhasCorte: 1,
+          bottomFeedLines: 1,
+          espacoCorteMm: 2,
+        });
 
-      // Voltamos a enviar APENAS a estrutura exata que o motor aceita
-      await axios.post(`${impressoraUrl}/imprimir`, {
-        id: pedido.id,
-        data: pedido.data,
-        origem: pedido.origem,
-        cliente: nomeParaImpressao, // Agora vai escrito: "MESA 12 - Johny"
-        telefone: pedido.telefone || pedido.cliente?.telefone || "",
-        total: pedido.total,
-        itens: pedido.itens,
-        taxaServico: pedido.taxaServico,
-        observacoes: observacoesParaImpressao // Agora o endereço vai sair aqui embaixo
-      });
+        setStatusImpressao(`Cupom processado!`);
+      } catch (error) {
+        console.warn("Falha na ponte local de impressão:", error);
+        setStatusImpressao("Erro na comunicação com a impressora.");
 
-      setStatusImpressao(`Cupom processado!`);
-
-    } catch (error) {
-      console.warn("Falha na ponte local de impressão:", error);
-      setStatusImpressao("Erro na comunicação com a impressora.");
-
-      setAlerta({
-        titulo: "Impressora Offline 🖨️",
-        mensagem: "Não foi possível conectar com a impressora. Verifique se a tela preta do sistema está aberta e se a máquina está ligada.",
-        tipo: "erro"
-      });
-    }
-  }, []);
+        setAlerta({
+          titulo: "Impressora Offline 🖨️",
+          mensagem:
+            "Não foi possível conectar com a impressora. Verifique se a tela preta do sistema está aberta e se a máquina está ligada.",
+          tipo: "erro",
+        });
+      }
+    },
+    [carregarLogoBase64],
+  );
 
   const finalizarAtendimento = async (atend: (typeof atendimentosAbertos)[0]) => {
     try {
@@ -282,18 +333,37 @@ function CaixaPage() {
 
   const imprimirConferencia = async (atend: (typeof atendimentosAbertos)[0]) => {
     const itensConsolidados = atend.pedidos.flatMap((p) => p.itens);
+    const atendentes = Array.from(
+      new Set(atend.pedidos.map((p) => p.garcom?.trim()).filter(Boolean)),
+    );
+    const atendente = atendentes.join(", ") || "Caixa";
+    const mesaConferencia =
+      atend.tipo === "mesa" ? atend.titulo.replace(/^Mesa\s*/i, "").trim() : "";
+    const taxaServicoConferencia = atend.pedidos.reduce((acc, p) => acc + (p.taxaServico || 0), 0);
+    const subtotalConferencia = Math.max(0, atend.total - taxaServicoConferencia);
+
     const pedidoConferencia: Pedido = {
       id: `CONF-${atend.titulo.replace(/\s+/g, "-")}`,
       data: new Date().toISOString(),
-      origem: atend.titulo,
+      origem: `CONFERENCIA - ${atend.titulo}`,
       pagamento: "A DEFINIR",
       itens: itensConsolidados,
-      subtotal: atend.total,
+      subtotal: subtotalConferencia,
+      taxaServico: taxaServicoConferencia,
       total: atend.total,
       impresso: true,
-      observacoes: "*** CONFERÊNCIA DE MESA ***",
+      mesa: mesaConferencia || undefined,
+      garcom: atendente,
+      observacoes: "*** CONFERENCIA DE MESA ***",
     };
-    await imprimirCupom(pedidoConferencia);
+    await imprimirCupom(pedidoConferencia, {
+      tipoCupom: "conferencia",
+      rotuloPessoa: "Atendente",
+      pessoa: atendente,
+      titulo: "*** CONFERENCIA ***",
+      mesa: mesaConferencia,
+      origem: `CONFERENCIA - ${atend.titulo}`,
+    });
   };
 
   const pendentes = pedidos.filter(
@@ -765,8 +835,8 @@ function CaixaPage() {
           @page { size: 58mm auto; margin: 0; }
           html, body { background: #fff !important; color: #000 !important; margin: 0; padding: 0; }
           .caixa-layout { display: none !important; }
-          #cupom-impressao { display: block !important; width: 52mm; margin: 0 auto; color: #000; font-family: 'Courier New', Courier, monospace; font-size: 10pt; padding: 2mm; padding-bottom: 10mm; }
-          #cupom-impressao img { width: 45px; height: 45px; margin: 0 auto 5px; display: block; filter: grayscale(100%) contrast(1.2); }
+          #cupom-impressao { display: block !important; width: 52mm; margin: 0 auto; color: #000; font-family: 'Courier New', Courier, monospace; font-size: 10pt; padding: 2mm; padding-bottom: 3mm; }
+          #cupom-impressao img { width: 50px; height: 50px; margin: 0 auto 4px; display: block; filter: grayscale(100%) contrast(1.7) brightness(1.05); }
           #cupom-impressao .linha { display: flex; justify-content: space-between; gap: 5px; align-items: flex-start; margin-bottom: 3px; }
           #cupom-impressao .linha > span:first-child { flex: 1; word-break: break-word; line-height: 1.1; }
           #cupom-impressao .linha > span:last-child { white-space: nowrap; flex-shrink: 0; font-weight: bold; text-align: right; }
