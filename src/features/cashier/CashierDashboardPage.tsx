@@ -224,17 +224,28 @@ function CaixaPage() {
       const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
       const conferencia = opcoes.tipoCupom === "conferencia";
 
-      // --- 1. REMOVEDOR DE ACENTOS (Para evitar os símbolos estranhos) ---
+      // --- 1. REMOVEDOR DE ACENTOS ---
       const removerAcentos = (str: string) => {
         if (!str) return "";
         return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       };
 
-      // --- 2. O TRUQUE: EMBUTIR A MESA E ENDEREÇO NOS CAMPOS PADRÕES ---
+      // Descobre se o garçom enviou como Acréscimo ou Correção
+      const origemDoPedido = (opcoes.origem ?? pedido.origem ?? "").toUpperCase();
+      const isAcrescimo = origemDoPedido.includes("ACRÉSCIMO") || origemDoPedido.includes("ACRESCIMO");
+      const isCorrecao = origemDoPedido.includes("CORREÇÃO") || origemDoPedido.includes("CORRECAO") || origemDoPedido.includes("RETIRADA");
+
+      // --- 2. O TRUQUE: EMBUTIR AVISOS NO NOME E OBSERVAÇÕES ---
       let nomeParaImpressao = opcoes.pessoa || pedido.cliente?.nome || pedido.garcom || "Balcao";
 
       if (pedido.mesa && !conferencia) {
-        nomeParaImpressao = `MESA ${pedido.mesa} - ${nomeParaImpressao}`;
+        if (isAcrescimo) {
+          nomeParaImpressao = `[ + ACRESCIMO ] MESA ${pedido.mesa} - ${nomeParaImpressao}`;
+        } else if (isCorrecao) {
+          nomeParaImpressao = `[ - RETIRADA ] MESA ${pedido.mesa} - ${nomeParaImpressao}`;
+        } else {
+          nomeParaImpressao = `MESA ${pedido.mesa} - ${nomeParaImpressao}`;
+        }
       }
 
       let observacoesParaImpressao = pedido.observacoes || "";
@@ -246,14 +257,23 @@ function CaixaPage() {
           : enderecoFormatado;
       }
 
+      // Se for acréscimo ou correção, avisa também nas observações no final do cupom
+      if (isAcrescimo && !conferencia) {
+        const aviso = `*** ATENCAO: ISTO E UM ACRESCIMO DA MESA ${pedido.mesa} ***`;
+        observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
+      } else if (isCorrecao && !conferencia) {
+        const aviso = `*** ATENCAO: ISTO E UMA CORRECAO/RETIRADA DA MESA ${pedido.mesa} ***`;
+        observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
+      }
+
       try {
         setStatusImpressao(`Enviando pedido para o Motor Local...`);
 
-        // --- 3. O PACOTE LIMPO (Sem logo, sem Base64, só o que o Motor aceita) ---
+        // --- 3. O PACOTE LIMPO PARA O MOTOR ---
         await axios.post(`${impressoraUrl}/imprimir`, {
           id: removerAcentos(pedido.id),
           data: pedido.data,
-          origem: removerAcentos(opcoes.origem ?? pedido.origem),
+          origem: removerAcentos(origemDoPedido),
           cliente: removerAcentos(nomeParaImpressao),
           telefone: pedido.telefone || pedido.cliente?.telefone || "",
           total: pedido.total,
@@ -279,7 +299,7 @@ function CaixaPage() {
         });
       }
     },
-    [] // Removido o carregarLogoBase64 daqui, pois não usaremos imagem via código
+    []
   );
 
   const finalizarAtendimento = async (atend: (typeof atendimentosAbertos)[0]) => {
