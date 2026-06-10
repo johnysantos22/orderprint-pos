@@ -211,32 +211,41 @@ function CaixaPage() {
   const atendimentoAtual = atendimentosAbertos.find((a) => a.id === atendimentoSelecionado);
 
   const imprimirCupom = useCallback(async (pedido: Pedido) => {
-    // VARIÁVEL DE AMBIENTE PROTEGIDA SEM ||
     const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
+
+    // --- O TRUQUE: Injetar as informações novas nos campos antigos ---
+
+    // 1. Embutindo a MESA no nome do cliente
+    let nomeParaImpressao = pedido.cliente?.nome || pedido.garcom || "Balcão";
+    if (pedido.mesa) {
+      nomeParaImpressao = `MESA ${pedido.mesa} - ${nomeParaImpressao}`;
+    }
+
+    // 2. Embutindo o ENDEREÇO nas observações
+    let observacoesParaImpressao = pedido.observacoes || "";
+    if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
+      const enderecoFormatado = `ENDEREÇO: ${pedido.cliente.endereco}`;
+      observacoesParaImpressao = observacoesParaImpressao
+        ? `${enderecoFormatado} | OBS: ${observacoesParaImpressao}`
+        : enderecoFormatado;
+    }
 
     try {
       setStatusImpressao(`Enviando pedido para o Motor Local...`);
+
+      // Voltamos a enviar APENAS a estrutura exata que o motor aceita
       await axios.post(`${impressoraUrl}/imprimir`, {
         id: pedido.id,
         data: pedido.data,
         origem: pedido.origem,
-        cliente: pedido.cliente?.nome || pedido.garcom || "Balcão",
+        cliente: nomeParaImpressao, // Agora vai escrito: "MESA 12 - Johny"
         telefone: pedido.telefone || pedido.cliente?.telefone || "",
-
-        // --- NOVOS CAMPOS ENVIADOS PARA A IMPRESSORA ---
-        endereco: pedido.cliente?.endereco || "",
-        mesa: pedido.mesa || "",
-        tipoEntrega: pedido.tipoEntrega || "",
-        pagamento: pedido.pagamento || "A DEFINIR",
-        // -----------------------------------------------
-
-        subtotal: pedido.subtotal || pedido.total,
-        taxaEntrega: pedido.taxaEntrega || 0,
         total: pedido.total,
         itens: pedido.itens,
-        taxaServico: pedido.taxaServico || 0,
-        observacoes: pedido.observacoes
+        taxaServico: pedido.taxaServico,
+        observacoes: observacoesParaImpressao // Agora o endereço vai sair aqui embaixo
       });
+
       setStatusImpressao(`Cupom processado!`);
 
     } catch (error) {
