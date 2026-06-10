@@ -96,6 +96,15 @@ export interface Pedido {
   telefone?: string;
 }
 
+interface ImprimirCupomOptions {
+  tipoCupom?: "pedido" | "conferencia";
+  rotuloPessoa?: "Cliente" | "Atendente";
+  pessoa?: string;
+  titulo?: string;
+  origem?: string;
+  mesa?: string;
+}
+
 function CaixaPage() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [pedidoParaImprimir, setPedidoParaImprimir] = useState<Pedido | null>(null);
@@ -210,36 +219,105 @@ function CaixaPage() {
 
   const atendimentoAtual = atendimentosAbertos.find((a) => a.id === atendimentoSelecionado);
 
-  const imprimirCupom = useCallback(async (pedido: Pedido) => {
-    // VARIÁVEL DE AMBIENTE PROTEGIDA SEM ||
-    const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
+  const imprimirCupom = useCallback(
+    async (pedido: Pedido, opcoes: ImprimirCupomOptions = {}) => {
+      const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
+      const conferencia = opcoes.tipoCupom === "conferencia";
 
-    try {
-      setStatusImpressao(`Enviando pedido para o Motor Local...`);
-      await axios.post(`${impressoraUrl}/imprimir`, {
-        id: pedido.id,
-        data: pedido.data,
-        origem: pedido.origem,
-        cliente: pedido.cliente?.nome || pedido.garcom || "Mesa",
-        telefone: pedido.telefone || pedido.cliente?.telefone || "",
-        total: pedido.total,
-        itens: pedido.itens,
-        taxaServico: pedido.taxaServico,
-        observacoes: pedido.observacoes
-      });
-      setStatusImpressao(`Cupom processado!`);
+      const removerAcentos = (str: string) => {
+        if (!str) return "";
+        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      };
 
-    } catch (error) {
-      console.warn("Falha na ponte local de impressão:", error);
-      setStatusImpressao("Erro na comunicação com a impressora.");
+      const origemDoPedido = (opcoes.origem ?? pedido.origem ?? "").toUpperCase();
+      const isAcrescimo = origemDoPedido.includes("ACRÉSCIMO") || origemDoPedido.includes("ACRESCIMO");
+      const isCorrecao = origemDoPedido.includes("CORREÇÃO") || origemDoPedido.includes("CORRECAO") || origemDoPedido.includes("RETIRADA");
 
-      setAlerta({
-        titulo: "Impressora Offline 🖨️",
-        mensagem: "Não foi possível conectar com a impressora. Verifique se a tela preta do sistema está aberta e se a máquina está ligada.",
-        tipo: "erro"
-      });
-    }
-  }, []);
+      // --- NOME E MESA ---
+      let nomeParaImpressao = opcoes.pessoa || pedido.cliente?.nome || pedido.garcom || "Balcao";
+
+      if (pedido.mesa && !conferencia) {
+        if (isAcrescimo) {
+          nomeParaImpressao = `[ + ACRESCIMO ] MESA ${pedido.mesa} - ${nomeParaImpressao}`;
+        } else if (isCorrecao) {
+          nomeParaImpressao = `[ - RETIRADA ] MESA ${pedido.mesa} - ${nomeParaImpressao}`;
+        } else {
+          nomeParaImpressao = `MESA ${pedido.mesa} - ${nomeParaImpressao}`;
+        }
+      }
+
+      // --- ENDEREÇO E PAGAMENTO ABAIXO DO TELEFONE ---
+      let telefoneParaImpressao = pedido.telefone || pedido.cliente?.telefone || "";
+
+      if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
+        const enderecoTxt = `Endereco: ${pedido.cliente.endereco}`;
+        telefoneParaImpressao = telefoneParaImpressao
+          ? `${telefoneParaImpressao}\n${enderecoTxt}`
+          : `\n${enderecoTxt}`;
+      }
+
+      if (pedido.pagamento) {
+        const pagFormatado = `Pagamento: ${pedido.pagamento.toUpperCase()}`;
+        telefoneParaImpressao = telefoneParaImpressao
+          ? `${telefoneParaImpressao}\n${pagFormatado}`
+          : `\n${pagFormatado}`;
+      }
+
+      // --- OBSERVAÇÕES E O OBRIGADO PELA PREFERÊNCIA ---
+      let observacoesParaImpressao = pedido.observacoes || "";
+
+      if (isAcrescimo && !conferencia) {
+        const aviso = `*** ATENCAO: ACRESCIMO DA MESA ${pedido.mesa} ***`;
+        observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
+      } else if (isCorrecao && !conferencia) {
+        const aviso = `*** ATENCAO: CORRECAO DA MESA ${pedido.mesa} ***`;
+        observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
+      }
+
+      const agradecimento = "Obrigado pela preferencia!";
+      observacoesParaImpressao = observacoesParaImpressao
+        ? `${observacoesParaImpressao}\n\n${agradecimento}`
+        : agradecimento;
+
+      try {
+        setStatusImpressao(`Enviando pedido para o Motor Local...`);
+
+        await axios.post(`${impressoraUrl}/imprimir`, {
+          id: removerAcentos(pedido.id),
+          data: pedido.data,
+          origem: removerAcentos(origemDoPedido),
+          cliente: removerAcentos(nomeParaImpressao),
+          telefone: removerAcentos(telefoneParaImpressao),
+          total: pedido.total,
+          itens: pedido.itens.map(item => ({
+            ...item,
+            nome: removerAcentos(item.nome),
+            tamanho: item.tamanho ? removerAcentos(item.tamanho) : item.tamanho
+          })),
+          taxaServico: 0, // <-- TAXA ZERADA PRO PAPEL
+          observacoes: removerAcentos(observacoesParaImpressao),
+
+          // --- FORÇANDO O MOTOR A CORTAR O ESPAÇO EM BRANCO ---
+          linhasCorte: 0,
+          bottomFeedLines: 0,
+          espacoCorteMm: 0
+        });
+
+        setStatusImpressao(`Cupom processado!`);
+      } catch (error) {
+        console.warn("Falha na ponte local de impressão:", error);
+        setStatusImpressao("Erro na comunicação com a impressora.");
+
+        setAlerta({
+          titulo: "Impressora Offline 🖨️",
+          mensagem:
+            "Não foi possível conectar com a impressora. Verifique se a tela preta do sistema está aberta e se a máquina está ligada.",
+          tipo: "erro",
+        });
+      }
+    },
+    []
+  );
 
   const finalizarAtendimento = async (atend: (typeof atendimentosAbertos)[0]) => {
     try {
@@ -653,33 +731,62 @@ function CaixaPage() {
     setCarregandoQr(true);
     setQrCodeBase64(null);
 
-    const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL;
+    const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL?.replace(/\/$/, ""); // Remove barra sobrando no final
     const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
     const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
+
+    // 1. Trava de segurança do .env
+    if (!whatsappUrl || !instancia || !apiKey) {
+      setAlerta({
+        titulo: "Erro de Configuração",
+        mensagem: "As variáveis do WhatsApp (VITE_WHATSAPP...) não estão configuradas no arquivo .env.",
+        tipo: "erro"
+      });
+      setCarregandoQr(false);
+      return;
+    }
 
     const config = { headers: { "apikey": apiKey, "Content-Type": "application/json" } };
 
     try {
-      // 1. FORÇA A DESCONEXÃO ANTES DE TUDO (Limpa o caminho)
+      // 2. Tenta forçar o logout para limpar sessões presas (Pode dar erro 404 se já estiver desconectado, por isso o catch vazio)
       await axios.delete(`${whatsappUrl}/instance/logout/${instancia}`, config).catch(() => { });
 
-      // 2. AGUARDA 1 SEGUNDO PARA O MOTOR PROCESSAR A DESCONEXÃO
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 3. Dá tempo para a API do WhatsApp respirar e reiniciar o motor interno
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // 3. PEDE UM QR CODE NOVO
-      const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, config);
+      let qrEncontrado = false;
 
-      if (response.data?.base64 || response.data?.qrcode?.base64) {
-        setQrCodeBase64(response.data.base64 || response.data.qrcode.base64);
-      } else {
-        // Se ainda não veio, tenta forçar o refresh
-        await axios.put(`${whatsappUrl}/instance/updateQrCode/${instancia}`, {}, config);
-        const refresh = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, config);
-        setQrCodeBase64(refresh.data?.base64 || refresh.data?.qrcode?.base64);
+      // 4. Tenta buscar o QR Code até 4 vezes (esperando 2 segundos entre cada tentativa)
+      for (let i = 0; i < 4; i++) {
+        const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, config);
+
+        // Pega o base64 dependendo de como a sua API devolve a estrutura
+        const base64 = response.data?.base64 || response.data?.qrcode?.base64 || response.data?.qrcode;
+
+        if (base64 && typeof base64 === 'string' && base64.trim() !== "") {
+          // Garante que o base64 tem o prefixo de imagem que o HTML exige
+          const imagemPronta = base64.includes("data:image") ? base64 : `data:image/png;base64,${base64}`;
+          setQrCodeBase64(imagemPronta);
+          qrEncontrado = true;
+          break; // Sai do loop de repetição pois já achou o QR Code
+        }
+
+        // Se não veio o base64 ainda, espera 2 segundos antes do próximo loop
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
-    } catch (error) {
-      console.error("Erro ao buscar QR:", error);
-      setAlerta({ titulo: "Erro", mensagem: "Falha ao conectar. Tente o botão 'Restart' no Manager.", tipo: "erro" });
+
+      if (!qrEncontrado) {
+        throw new Error("A API demorou muito para gerar o QR Code.");
+      }
+
+    } catch (error: any) {
+      console.error("Erro detalhado do WhatsApp:", error.response?.data || error.message);
+      setAlerta({
+        titulo: "Falha de Conexão",
+        mensagem: "Não foi possível gerar o QR Code. Verifique se o Motor do WhatsApp (Evolution/Z-API) está rodando e se a instância existe.",
+        tipo: "erro"
+      });
     } finally {
       setCarregandoQr(false);
     }
