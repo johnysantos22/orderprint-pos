@@ -113,7 +113,6 @@ function CaixaPage() {
   const [somAtivo, setSomAtivo] = useState(false);
   const imprimindoRef = useRef(false);
   const pedidosRef = useRef<Pedido[]>([]);
-  const logoBase64Ref = useRef<string | null>(null);
 
   const [lojaAberta, setLojaAberta] = useState(true);
   const [draftPedidoEdicao, setDraftPedidoEdicao] = useState<Pedido | null>(null);
@@ -151,27 +150,6 @@ function CaixaPage() {
     setMensagemFlutuante(msg);
     if (timeoutFlutuante.current) clearTimeout(timeoutFlutuante.current);
     timeoutFlutuante.current = window.setTimeout(() => setMensagemFlutuante(""), 2500);
-  }, []);
-
-  const carregarLogoBase64 = useCallback(async () => {
-    if (logoBase64Ref.current) return logoBase64Ref.current;
-
-    try {
-      const response = await fetch(logo);
-      const blob = await response.blob();
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
-      });
-
-      logoBase64Ref.current = dataUrl;
-      return dataUrl;
-    } catch (error) {
-      console.warn("Nao foi possivel carregar a logo para impressao:", error);
-      return "";
-    }
   }, []);
 
   useEffect(() => {
@@ -244,17 +222,23 @@ function CaixaPage() {
   const imprimirCupom = useCallback(
     async (pedido: Pedido, opcoes: ImprimirCupomOptions = {}) => {
       const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
-      const tipoCupom = opcoes.tipoCupom ?? "pedido";
-      const conferencia = tipoCupom === "conferencia";
-      const rotuloPessoa =
-        opcoes.rotuloPessoa ?? (pedido.garcom && !pedido.cliente?.nome ? "Atendente" : "Cliente");
+      const conferencia = opcoes.tipoCupom === "conferencia";
 
+      // --- 1. REMOVEDOR DE ACENTOS (Para evitar os símbolos estranhos) ---
+      const removerAcentos = (str: string) => {
+        if (!str) return "";
+        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      };
+
+      // --- 2. O TRUQUE: EMBUTIR A MESA E ENDEREÇO NOS CAMPOS PADRÕES ---
       let nomeParaImpressao = opcoes.pessoa || pedido.cliente?.nome || pedido.garcom || "Balcao";
+
       if (pedido.mesa && !conferencia) {
         nomeParaImpressao = `MESA ${pedido.mesa} - ${nomeParaImpressao}`;
       }
 
       let observacoesParaImpressao = pedido.observacoes || "";
+
       if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
         const enderecoFormatado = `ENDERECO: ${pedido.cliente.endereco}`;
         observacoesParaImpressao = observacoesParaImpressao
@@ -264,35 +248,22 @@ function CaixaPage() {
 
       try {
         setStatusImpressao(`Enviando pedido para o Motor Local...`);
-        const logoBase64 = await carregarLogoBase64();
 
+        // --- 3. O PACOTE LIMPO (Sem logo, sem Base64, só o que o Motor aceita) ---
         await axios.post(`${impressoraUrl}/imprimir`, {
-          id: pedido.id,
+          id: removerAcentos(pedido.id),
           data: pedido.data,
-          origem: opcoes.origem ?? pedido.origem,
-          tipoCupom,
-          titulo: opcoes.titulo ?? (conferencia ? "*** CONFERENCIA ***" : "PEDIDO"),
-          rotuloPessoa,
-          rotuloCliente: rotuloPessoa,
-          labelCliente: rotuloPessoa,
-          cliente: nomeParaImpressao,
-          atendente: rotuloPessoa === "Atendente" ? nomeParaImpressao : (pedido.garcom || ""),
-          garcom: pedido.garcom || "",
-          mesa: opcoes.mesa ?? pedido.mesa ?? "",
+          origem: removerAcentos(opcoes.origem ?? pedido.origem),
+          cliente: removerAcentos(nomeParaImpressao),
           telefone: pedido.telefone || pedido.cliente?.telefone || "",
-          subtotal: pedido.subtotal,
-          taxaEntrega: pedido.taxaEntrega,
           total: pedido.total,
-          itens: pedido.itens,
-          taxaServico: pedido.taxaServico,
-          observacoes: observacoesParaImpressao,
-          logoBase64,
-          logoDataUrl: logoBase64,
-          imprimirLogo: true,
-          logoPretoBranco: true,
-          linhasCorte: 1,
-          bottomFeedLines: 1,
-          espacoCorteMm: 2,
+          itens: pedido.itens.map(item => ({
+            ...item,
+            nome: removerAcentos(item.nome),
+            tamanho: item.tamanho ? removerAcentos(item.tamanho) : item.tamanho
+          })),
+          taxaServico: pedido.taxaServico || 0,
+          observacoes: removerAcentos(observacoesParaImpressao)
         });
 
         setStatusImpressao(`Cupom processado!`);
@@ -308,7 +279,7 @@ function CaixaPage() {
         });
       }
     },
-    [carregarLogoBase64],
+    [] // Removido o carregarLogoBase64 daqui, pois não usaremos imagem via código
   );
 
   const finalizarAtendimento = async (atend: (typeof atendimentosAbertos)[0]) => {
