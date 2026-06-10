@@ -96,15 +96,6 @@ export interface Pedido {
   telefone?: string;
 }
 
-interface ImprimirCupomOptions {
-  tipoCupom?: "pedido" | "conferencia";
-  rotuloPessoa?: "Cliente" | "Atendente";
-  pessoa?: string;
-  titulo?: string;
-  origem?: string;
-  mesa?: string;
-}
-
 function CaixaPage() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [pedidoParaImprimir, setPedidoParaImprimir] = useState<Pedido | null>(null);
@@ -219,96 +210,36 @@ function CaixaPage() {
 
   const atendimentoAtual = atendimentosAbertos.find((a) => a.id === atendimentoSelecionado);
 
-  const imprimirCupom = useCallback(
-    async (pedido: Pedido, opcoes: ImprimirCupomOptions = {}) => {
-      const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
-      const conferencia = opcoes.tipoCupom === "conferencia";
+  const imprimirCupom = useCallback(async (pedido: Pedido) => {
+    // VARIÁVEL DE AMBIENTE PROTEGIDA SEM ||
+    const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
 
-      const removerAcentos = (str: string) => {
-        if (!str) return "";
-        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      };
+    try {
+      setStatusImpressao(`Enviando pedido para o Motor Local...`);
+      await axios.post(`${impressoraUrl}/imprimir`, {
+        id: pedido.id,
+        data: pedido.data,
+        origem: pedido.origem,
+        cliente: pedido.cliente?.nome || pedido.garcom || "Mesa",
+        telefone: pedido.telefone || pedido.cliente?.telefone || "",
+        total: pedido.total,
+        itens: pedido.itens,
+        taxaServico: pedido.taxaServico,
+        observacoes: pedido.observacoes
+      });
+      setStatusImpressao(`Cupom processado!`);
 
-      const origemDoPedido = (opcoes.origem ?? pedido.origem ?? "").toUpperCase();
-      const isAcrescimo = origemDoPedido.includes("ACRÉSCIMO") || origemDoPedido.includes("ACRESCIMO");
-      const isCorrecao = origemDoPedido.includes("CORREÇÃO") || origemDoPedido.includes("CORRECAO") || origemDoPedido.includes("RETIRADA");
+    } catch (error) {
+      console.warn("Falha na ponte local de impressão:", error);
+      setStatusImpressao("Erro na comunicação com a impressora.");
 
-      // --- NOME E MESA ---
-      let nomeParaImpressao = opcoes.pessoa || pedido.cliente?.nome || pedido.garcom || "Balcao";
-      if (pedido.mesa && !conferencia) {
-        if (isAcrescimo) {
-          nomeParaImpressao = `[ + ACRESCIMO ] MESA ${pedido.mesa} - ${nomeParaImpressao}`;
-        } else if (isCorrecao) {
-          nomeParaImpressao = `[ - RETIRADA ] MESA ${pedido.mesa} - ${nomeParaImpressao}`;
-        } else {
-          nomeParaImpressao = `MESA ${pedido.mesa} - ${nomeParaImpressao}`;
-        }
-      }
-
-      // --- ENDEREÇO E PAGAMENTO ABAIXO DO TELEFONE ---
-      let telefoneParaImpressao = pedido.telefone || pedido.cliente?.telefone || "";
-      if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
-        telefoneParaImpressao = telefoneParaImpressao
-          ? `${telefoneParaImpressao}\nEndereco: ${pedido.cliente.endereco}`
-          : `\nEndereco: ${pedido.cliente.endereco}`;
-      }
-      if (pedido.pagamento) {
-        const pagFormatado = `Pagamento: ${pedido.pagamento.toUpperCase()}`;
-        telefoneParaImpressao = telefoneParaImpressao
-          ? `${telefoneParaImpressao}\n${pagFormatado}`
-          : `\n${pagFormatado}`;
-      }
-
-      // --- OBSERVAÇÕES E O "OBRIGADO" ---
-      let observacoesParaImpressao = pedido.observacoes || "";
-
-      // O truque: Injetar o texto no final de tudo!
-      const agradecimento = "Obrigado pela preferencia!";
-      if (observacoesParaImpressao) {
-        observacoesParaImpressao = `${observacoesParaImpressao}\n\n${agradecimento}`;
-      } else {
-        observacoesParaImpressao = `\n${agradecimento}`;
-      }
-
-      try {
-        setStatusImpressao(`Enviando pedido para o Motor Local...`);
-
-        await axios.post(`${impressoraUrl}/imprimir`, {
-          id: removerAcentos(pedido.id),
-          data: pedido.data,
-          origem: removerAcentos(origemDoPedido),
-          cliente: removerAcentos(nomeParaImpressao),
-          telefone: removerAcentos(telefoneParaImpressao),
-          total: pedido.total,
-          itens: pedido.itens.map(item => ({
-            ...item,
-            nome: removerAcentos(item.nome),
-            tamanho: item.tamanho ? removerAcentos(item.tamanho) : item.tamanho
-          })),
-          taxaServico: pedido.taxaServico || 0,
-          observacoes: removerAcentos(observacoesParaImpressao),
-
-          // --- FORÇANDO O MOTOR A CORTAR O ESPAÇO EM BRANCO ---
-          linhasCorte: 0,
-          bottomFeedLines: 0,
-          espacoCorteMm: 0
-        });
-
-        setStatusImpressao(`Cupom processado!`);
-      } catch (error) {
-        console.warn("Falha na ponte local de impressão:", error);
-        setStatusImpressao("Erro na comunicação com a impressora.");
-
-        setAlerta({
-          titulo: "Impressora Offline 🖨️",
-          mensagem:
-            "Não foi possível conectar com a impressora. Verifique se a tela preta do sistema está aberta e se a máquina está ligada.",
-          tipo: "erro",
-        });
-      }
-    },
-    []
-  );
+      setAlerta({
+        titulo: "Impressora Offline 🖨️",
+        mensagem: "Não foi possível conectar com a impressora. Verifique se a tela preta do sistema está aberta e se a máquina está ligada.",
+        tipo: "erro"
+      });
+    }
+  }, []);
 
   const finalizarAtendimento = async (atend: (typeof atendimentosAbertos)[0]) => {
     try {
@@ -332,37 +263,18 @@ function CaixaPage() {
 
   const imprimirConferencia = async (atend: (typeof atendimentosAbertos)[0]) => {
     const itensConsolidados = atend.pedidos.flatMap((p) => p.itens);
-    const atendentes = Array.from(
-      new Set(atend.pedidos.map((p) => p.garcom?.trim()).filter(Boolean)),
-    );
-    const atendente = atendentes.join(", ") || "Caixa";
-    const mesaConferencia =
-      atend.tipo === "mesa" ? atend.titulo.replace(/^Mesa\s*/i, "").trim() : "";
-    const taxaServicoConferencia = atend.pedidos.reduce((acc, p) => acc + (p.taxaServico || 0), 0);
-    const subtotalConferencia = Math.max(0, atend.total - taxaServicoConferencia);
-
     const pedidoConferencia: Pedido = {
       id: `CONF-${atend.titulo.replace(/\s+/g, "-")}`,
       data: new Date().toISOString(),
-      origem: `CONFERENCIA - ${atend.titulo}`,
+      origem: atend.titulo,
       pagamento: "A DEFINIR",
       itens: itensConsolidados,
-      subtotal: subtotalConferencia,
-      taxaServico: taxaServicoConferencia,
+      subtotal: atend.total,
       total: atend.total,
       impresso: true,
-      mesa: mesaConferencia || undefined,
-      garcom: atendente,
-      observacoes: "*** CONFERENCIA DE MESA ***",
+      observacoes: "*** CONFERÊNCIA DE MESA ***",
     };
-    await imprimirCupom(pedidoConferencia, {
-      tipoCupom: "conferencia",
-      rotuloPessoa: "Atendente",
-      pessoa: atendente,
-      titulo: "*** CONFERENCIA ***",
-      mesa: mesaConferencia,
-      origem: `CONFERENCIA - ${atend.titulo}`,
-    });
+    await imprimirCupom(pedidoConferencia);
   };
 
   const pendentes = pedidos.filter(
@@ -834,8 +746,8 @@ function CaixaPage() {
           @page { size: 58mm auto; margin: 0; }
           html, body { background: #fff !important; color: #000 !important; margin: 0; padding: 0; }
           .caixa-layout { display: none !important; }
-          #cupom-impressao { display: block !important; width: 52mm; margin: 0 auto; color: #000; font-family: 'Courier New', Courier, monospace; font-size: 10pt; padding: 2mm; padding-bottom: 3mm; }
-          #cupom-impressao img { width: 50px; height: 50px; margin: 0 auto 4px; display: block; filter: grayscale(100%) contrast(1.7) brightness(1.05); }
+          #cupom-impressao { display: block !important; width: 52mm; margin: 0 auto; color: #000; font-family: 'Courier New', Courier, monospace; font-size: 10pt; padding: 2mm; padding-bottom: 10mm; }
+          #cupom-impressao img { width: 45px; height: 45px; margin: 0 auto 5px; display: block; filter: grayscale(100%) contrast(1.2); }
           #cupom-impressao .linha { display: flex; justify-content: space-between; gap: 5px; align-items: flex-start; margin-bottom: 3px; }
           #cupom-impressao .linha > span:first-child { flex: 1; word-break: break-word; line-height: 1.1; }
           #cupom-impressao .linha > span:last-child { white-space: nowrap; flex-shrink: 0; font-weight: bold; text-align: right; }
