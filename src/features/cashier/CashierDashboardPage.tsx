@@ -224,7 +224,6 @@ function CaixaPage() {
       const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
       const conferencia = opcoes.tipoCupom === "conferencia";
 
-      // --- 1. REMOVEDOR DE ACENTOS ---
       const removerAcentos = (str: string) => {
         if (!str) return "";
         return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -234,9 +233,8 @@ function CaixaPage() {
       const isAcrescimo = origemDoPedido.includes("ACRÉSCIMO") || origemDoPedido.includes("ACRESCIMO");
       const isCorrecao = origemDoPedido.includes("CORREÇÃO") || origemDoPedido.includes("CORRECAO") || origemDoPedido.includes("RETIRADA");
 
-      // --- 2. NOME E MESA ---
+      // --- NOME E MESA ---
       let nomeParaImpressao = opcoes.pessoa || pedido.cliente?.nome || pedido.garcom || "Balcao";
-
       if (pedido.mesa && !conferencia) {
         if (isAcrescimo) {
           nomeParaImpressao = `[ + ACRESCIMO ] MESA ${pedido.mesa} - ${nomeParaImpressao}`;
@@ -247,27 +245,29 @@ function CaixaPage() {
         }
       }
 
-      // --- 3. O TRUQUE: ENDEREÇO ABAIXO DO TELEFONE ---
+      // --- ENDEREÇO E PAGAMENTO ABAIXO DO TELEFONE ---
       let telefoneParaImpressao = pedido.telefone || pedido.cliente?.telefone || "";
-
       if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
-        // O "\n" força a impressora a pular de linha!
-        if (telefoneParaImpressao) {
-          telefoneParaImpressao = `${telefoneParaImpressao}\nEndereco: ${pedido.cliente.endereco}`;
-        } else {
-          telefoneParaImpressao = `\nEndereco: ${pedido.cliente.endereco}`;
-        }
+        telefoneParaImpressao = telefoneParaImpressao
+          ? `${telefoneParaImpressao}\nEndereco: ${pedido.cliente.endereco}`
+          : `\nEndereco: ${pedido.cliente.endereco}`;
+      }
+      if (pedido.pagamento) {
+        const pagFormatado = `Pagamento: ${pedido.pagamento.toUpperCase()}`;
+        telefoneParaImpressao = telefoneParaImpressao
+          ? `${telefoneParaImpressao}\n${pagFormatado}`
+          : `\n${pagFormatado}`;
       }
 
-      // --- 4. OBSERVAÇÕES (Agora apenas com os avisos reais) ---
+      // --- OBSERVAÇÕES E O "OBRIGADO" ---
       let observacoesParaImpressao = pedido.observacoes || "";
 
-      if (isAcrescimo && !conferencia) {
-        const aviso = `*** ATENCAO: ISTO E UM ACRESCIMO DA MESA ${pedido.mesa} ***`;
-        observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
-      } else if (isCorrecao && !conferencia) {
-        const aviso = `*** ATENCAO: ISTO E UMA CORRECAO/RETIRADA DA MESA ${pedido.mesa} ***`;
-        observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
+      // O truque: Injetar o texto no final de tudo!
+      const agradecimento = "Obrigado pela preferencia!";
+      if (observacoesParaImpressao) {
+        observacoesParaImpressao = `${observacoesParaImpressao}\n\n${agradecimento}`;
+      } else {
+        observacoesParaImpressao = `\n${agradecimento}`;
       }
 
       try {
@@ -278,7 +278,7 @@ function CaixaPage() {
           data: pedido.data,
           origem: removerAcentos(origemDoPedido),
           cliente: removerAcentos(nomeParaImpressao),
-          telefone: removerAcentos(telefoneParaImpressao), // <-- Envia Telefone + Quebra de Linha + Endereço
+          telefone: removerAcentos(telefoneParaImpressao),
           total: pedido.total,
           itens: pedido.itens.map(item => ({
             ...item,
@@ -286,7 +286,12 @@ function CaixaPage() {
             tamanho: item.tamanho ? removerAcentos(item.tamanho) : item.tamanho
           })),
           taxaServico: pedido.taxaServico || 0,
-          observacoes: removerAcentos(observacoesParaImpressao)
+          observacoes: removerAcentos(observacoesParaImpressao),
+
+          // --- FORÇANDO O MOTOR A CORTAR O ESPAÇO EM BRANCO ---
+          linhasCorte: 0,
+          bottomFeedLines: 0,
+          espacoCorteMm: 0
         });
 
         setStatusImpressao(`Cupom processado!`);

@@ -1,38 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import logo from "@/assets/logo.jpeg";
-import { bebidas, pasteis, pizzas, porcoes, sucos, type PizzaSize } from "@/domain/menu/menu";
-import { formatCurrency } from "@/shared/utils/format";
 import {
-  Bike,
   CheckCircle2,
-  Copy,
-  CreditCard,
-  MapPin,
-  MessageCircle,
   Minus,
-  PackageCheck,
   Plus,
-  ReceiptText,
+  Send,
   ShoppingCart,
-  Store,
   Trash2,
   UserRound,
   AlertTriangle,
   X,
   Ban,
 } from "lucide-react";
-import { doc, setDoc, onSnapshot } from "firebase/firestore";
+import { PinLock } from "@/shared/components/PinLock";
+import { bebidas, pasteis, pizzas, porcoes, sucos, type PizzaSize } from "@/domain/menu/menu";
+import { formatCurrency } from "@/shared/utils/format";
+import { doc, setDoc, onSnapshot, collection, query } from "firebase/firestore";
 import { db } from "@/services/firebase";
 
-type Categoria = "pizzas" | "pasteis" | "porcoes" | "bebidas" | "sucos";
-type TipoEntrega = "NO_LOCAL" | "RETIRAR" | "ENTREGAR";
-type FormaPagamento = "PIX" | "Crédito" | "Débito";
+type CategoriaCarrinho = "pizza" | "pastel" | "porcao" | "bebida" | "suco";
+type PagamentoMesa = "A DEFINIR NO CAIXA";
+type CategoriaMenu = "pizzas" | "pasteis" | "porcoes" | "bebidas" | "sucos";
 
-export interface ItemCarrinho {
+export interface ItemCarrinhoGarcom {
   key: string;
   id: number;
   nome: string;
-  categoria: Categoria;
+  categoria: CategoriaCarrinho;
   precoUnitario: number;
   quantidade: number;
   tamanho?: PizzaSize;
@@ -42,33 +35,36 @@ export interface ItemCarrinho {
   };
 }
 
-export interface Pedido {
+export interface EstadoPedidoGarcom {
+  nomeGarcom: string;
+  numeroMesa: string;
+  observacoes: string;
+  carrinho: ItemCarrinhoGarcom[];
+}
+
+interface PedidoMesa {
   id: string;
   data: string;
   origem: string;
-  cliente: {
-    nome: string;
-    endereco: string;
-    telefone: string;
-  };
-  tipoEntrega: TipoEntrega;
-  pagamento: FormaPagamento;
-  itens: ItemCarrinho[];
+  garcom: string;
+  mesa: string;
+  pagamento: PagamentoMesa;
+  itens: ItemCarrinhoGarcom[];
   subtotal: number;
   taxaEntrega: number;
+  taxaServico: number;
   total: number;
   impresso: boolean;
   observacoes?: string;
   status?: string;
 }
 
-const CLIENT_DRAFT_KEY = "cliente-carrinho-rascunho";
-const PIX_KEY = "460c389b-9041-4124-884f-01fef2e316e6";
-const CASHIER_WHATSAPP = "5584998135262";
+const GARCOM_DRAFT_KEY = "garcom-comanda-rascunho";
 const SUCO_AO_LEITE_ACRESCIMO = 1;
 const tamanhosPizza: PizzaSize[] = ["M", "G", "GG"];
 
-const tabs: { id: Categoria; label: string }[] = [
+// Sistema de Abas (Tabs) igual ao do cliente
+const tabs: { id: CategoriaMenu; label: string }[] = [
   { id: "pizzas", label: "Pizzas" },
   { id: "pasteis", label: "Pastéis" },
   { id: "porcoes", label: "Porções" },
@@ -76,79 +72,70 @@ const tabs: { id: Categoria; label: string }[] = [
   { id: "sucos", label: "Sucos" },
 ];
 
-const opcoesEntrega: {
-  value: TipoEntrega;
-  label: string;
-  detalhe: string;
-  taxa: number;
-  icon: React.ElementType;
-}[] = [
-    { value: "NO_LOCAL", label: "No Local", detalhe: "Grátis", taxa: 0, icon: Store },
-    { value: "RETIRAR", label: "Retirar", detalhe: "Grátis", taxa: 0, icon: PackageCheck },
-    { value: "ENTREGAR", label: "Entregar", detalhe: "+ R$ 5,00", taxa: 5, icon: Bike },
-  ];
-
-const formasPagamento: FormaPagamento[] = ["PIX", "Crédito", "Débito"];
-
-interface ClienteDraft {
-  tab: Categoria;
-  carrinho: ItemCarrinho[];
-  nome: string;
-  telefone: string;
-  endereco: string;
-  observacoes: string;
-  tipoEntrega: TipoEntrega;
-  formaPagamento: FormaPagamento;
+interface GarcomDraft extends EstadoPedidoGarcom {
   meiaTamanho: PizzaSize;
   meiaSaborA: string;
   meiaSaborB: string;
 }
 
-const clienteDraftDefault: ClienteDraft = {
-  tab: "pizzas",
-  carrinho: [],
-  nome: "",
-  telefone: "",
-  endereco: "",
+const garcomDraftDefault: GarcomDraft = {
+  nomeGarcom: "",
+  numeroMesa: "",
   observacoes: "",
-  tipoEntrega: "NO_LOCAL",
-  formaPagamento: "PIX",
+  carrinho: [],
   meiaTamanho: "G",
   meiaSaborA: String(pizzas[0]?.id ?? ""),
   meiaSaborB: String(pizzas[1]?.id ?? ""),
-};
+}
 
-const lerClienteDraft = (): ClienteDraft => {
-  const raw = localStorage.getItem(CLIENT_DRAFT_KEY);
-  if (!raw) return clienteDraftDefault;
+const lerGarcomDraft = (): GarcomDraft => {
+  const raw = localStorage.getItem(GARCOM_DRAFT_KEY);
+  if (!raw) return garcomDraftDefault;
 
   try {
-    const parsed = JSON.parse(raw) as Partial<ClienteDraft>;
+    const parsed = JSON.parse(raw) as Partial<GarcomDraft>;
     return {
-      ...clienteDraftDefault,
+      ...garcomDraftDefault,
       ...parsed,
       carrinho: Array.isArray(parsed.carrinho) ? parsed.carrinho : [],
     };
   } catch {
-    return clienteDraftDefault;
+    return garcomDraftDefault;
   }
 };
 
 const gerarIdPedido = () =>
-  globalThis.crypto?.randomUUID?.() ?? `PED-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  globalThis.crypto?.randomUUID?.() ?? `MESA-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-export function CustomerOrderPage() {
-  const [rascunhoInicial] = useState(() => lerClienteDraft());
-  const [tab, setTab] = useState<Categoria>(rascunhoInicial.tab);
-  const [carrinho, setCarrinho] = useState<ItemCarrinho[]>(rascunhoInicial.carrinho);
-  const [nome, setNome] = useState(rascunhoInicial.nome);
-  const [telefone, setTelefone] = useState(rascunhoInicial.telefone);
-  const [endereco, setEndereco] = useState(rascunhoInicial.endereco);
-  const [observacoes, setObservacoes] = useState(rascunhoInicial.observacoes);
-  const [tipoEntrega, setTipoEntrega] = useState<TipoEntrega>(rascunhoInicial.tipoEntrega);
-  const [formaPagamento, setFormaPagamento] = useState<FormaPagamento>(
-    rascunhoInicial.formaPagamento,
+export function WaiterOrderPage() {
+  const [pinGarcom, setPinGarcom] = useState("5566");
+
+  // Busca o PIN atualizado na nuvem antes de liberar o acesso
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, "configuracoes", "seguranca"), (docSnap) => {
+      if (docSnap.exists() && docSnap.data().pinGarcom) {
+        setPinGarcom(String(docSnap.data().pinGarcom));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  return (
+    <PinLock correctPin={pinGarcom} title="Tela do Garçom">
+      <GarcomPage />
+    </PinLock>
   );
+}
+
+function GarcomPage() {
+  const [rascunhoInicial] = useState(() => lerGarcomDraft());
+  const [pedido, setPedido] = useState<EstadoPedidoGarcom>({
+    nomeGarcom: rascunhoInicial.nomeGarcom,
+    numeroMesa: rascunhoInicial.numeroMesa,
+    observacoes: rascunhoInicial.observacoes,
+    carrinho: rascunhoInicial.carrinho,
+  });
+  const [tab, setTab] = useState<CategoriaMenu>("pizzas"); // Controle da Aba Ativa
   const [meiaTamanho, setMeiaTamanho] = useState<PizzaSize>(rascunhoInicial.meiaTamanho);
   const [meiaSaborA, setMeiaSaborA] = useState(rascunhoInicial.meiaSaborA);
   const [meiaSaborB, setMeiaSaborB] = useState(rascunhoInicial.meiaSaborB);
@@ -156,68 +143,43 @@ export function CustomerOrderPage() {
   const [modalSucessoAberto, setModalSucessoAberto] = useState(false);
   const [modalCarrinhoAberto, setModalCarrinhoAberto] = useState(false);
 
-  // ESTADO DA LOJA E ESTOQUE
-  const [lojaAberta, setLojaAberta] = useState(true);
-  const [horarioFuncionamento, setHorarioFuncionamento] = useState(
-    "🕒Quarta a Domingo | das 18h às 22h.",
-  );
+  // ESTADOS DE CONFIGURAÇÕES E ALERTAS
   const [esgotados, setEsgotados] = useState<number[]>([]);
+  const [lojaAberta, setLojaAberta] = useState(true);
+  const [horarioFuncionamento, setHorarioFuncionamento] = useState("🕒Quarta a Domingo | das 18h às 22h.");
+  const [mesasAbertas, setMesasAbertas] = useState<string[]>([]);
+  const [tipoComplemento, setTipoComplemento] = useState<"acrescimo" | "correcao">("acrescimo");
   const [menuOverrides, setMenuOverrides] = useState<Record<string, any>>({});
-
-  // ESTADO DE ALERTA GLOBAL
   const [alerta, setAlerta] = useState<{
     titulo: string;
     mensagem: string;
     tipo: "sucesso" | "erro" | "aviso";
   } | null>(null);
+  const [confirmarAcao, setConfirmarAcao] = useState<{
+    mensagem: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const mensagemTimeoutRef = useRef<number | null>(null);
 
   const subtotal = useMemo(
-    () => carrinho.reduce((total, item) => total + item.precoUnitario * item.quantidade, 0),
-    [carrinho],
+    () => pedido.carrinho.reduce((total, item) => total + item.precoUnitario * item.quantidade, 0),
+    [pedido.carrinho],
   );
 
-  const taxaEntrega = opcoesEntrega.find((opcao) => opcao.value === tipoEntrega)?.taxa ?? 0;
-  const total = subtotal + taxaEntrega;
-  const enderecoObrigatorio = tipoEntrega === "ENTREGAR";
-
-  const dadosConferenciaOk =
-    carrinho.length > 0 &&
-    nome.trim().length > 0 &&
-    (tipoEntrega === "NO_LOCAL" || telefone.replace(/\D/g, "").length >= 10) &&
-    (!enderecoObrigatorio || endereco.trim().length > 0);
+  const total = subtotal; // TAXA DE SERVIÇO TOTALMENTE REMOVIDA DA SOMA
 
   useEffect(() => {
-    const draft: ClienteDraft = {
-      tab,
-      carrinho,
-      nome,
-      telefone,
-      endereco,
-      observacoes,
-      tipoEntrega,
-      formaPagamento,
+    const draft: GarcomDraft = {
+      ...pedido,
       meiaTamanho,
       meiaSaborA,
       meiaSaborB,
     };
-    localStorage.setItem(CLIENT_DRAFT_KEY, JSON.stringify(draft));
-  }, [
-    carrinho,
-    endereco,
-    telefone,
-    formaPagamento,
-    meiaSaborA,
-    meiaSaborB,
-    meiaTamanho,
-    nome,
-    observacoes,
-    tab,
-    tipoEntrega,
-  ]);
+    localStorage.setItem(GARCOM_DRAFT_KEY, JSON.stringify(draft));
+  }, [meiaSaborA, meiaSaborB, meiaTamanho, pedido]);
 
-  // ESPIÃO DA LOJA ABERTA/FECHADA E CARDÁPIO
+  // ESPIÃO DO CARDÁPIO (Para travar botões de itens esgotados)
   useEffect(() => {
     const unsubscribeLoja = onSnapshot(doc(db, "configuracoes", "loja"), (docSnap) => {
       if (docSnap.exists()) {
@@ -247,8 +209,33 @@ export function CustomerOrderPage() {
     };
   }, []);
 
-  const mostrarMensagem = (mensagem: string) => {
-    setMensagemCarrinho(mensagem);
+  // ESPIÃO DE MESAS ABERTAS (Para identificar acréscimos/retiradas)
+  useEffect(() => {
+    const unsubscribePedidos = onSnapshot(query(collection(db, "pedidos")), (snap) => {
+      const mesas = new Set<string>();
+      snap.forEach((d) => {
+        const p = d.data() as PedidoMesa;
+        if (p.status !== "cancelado" && p.status !== "finalizado" && p.mesa) {
+          let mesaNormalizada = String(p.mesa).trim();
+          if (/^\d+$/.test(mesaNormalizada)) {
+            mesaNormalizada = parseInt(mesaNormalizada, 10).toString();
+          }
+          mesas.add(mesaNormalizada);
+        }
+      });
+      setMesasAbertas(Array.from(mesas).sort((a, b) => Number(a) - Number(b)));
+    });
+    return () => unsubscribePedidos();
+  }, []);
+
+  let mesaInputNormalizada = pedido.numeroMesa.trim();
+  if (/^\d+$/.test(mesaInputNormalizada)) {
+    mesaInputNormalizada = parseInt(mesaInputNormalizada, 10).toString();
+  }
+  const isMesaAberta = mesasAbertas.includes(mesaInputNormalizada);
+
+  const avisarItemAdicionado = (nomeItem: string) => {
+    setMensagemCarrinho(`${nomeItem} adicionado à mesa.`);
     if (mensagemTimeoutRef.current) window.clearTimeout(mensagemTimeoutRef.current);
     mensagemTimeoutRef.current = window.setTimeout(() => {
       setMensagemCarrinho("");
@@ -256,131 +243,42 @@ export function CustomerOrderPage() {
     }, 1800);
   };
 
-  const avisarItemAdicionado = (nomeItem: string) => {
-    mostrarMensagem(`${nomeItem} adicionado ao carrinho.`);
-  };
-
-  const itensResumoWhatsApp = useMemo(() => {
-    if (carrinho.length === 0) return "Nenhum item informado";
-    return carrinho
-      .map(
-        (item) =>
-          `${item.quantidade}x ${item.nome}${item.tamanho ? ` (${item.tamanho})` : ""} - ${formatCurrency(item.precoUnitario * item.quantidade)}`,
-      )
-      .join("\n");
-  }, [carrinho]);
-
-  const mensagemWhatsApp = useMemo(() => {
-    const entregaSelecionada =
-      opcoesEntrega.find((opcao) => opcao.value === tipoEntrega)?.label ?? "Não informado";
-    return [
-      "Olá, caixa da Pizzaria 2 Irmãos!",
-      "Segue meu comprovante de PIX para conferência do pedido.",
-      "",
-      `Cliente: ${nome.trim() || "Não informado"}`,
-      `WhatsApp: ${telefone.trim() || "Não informado"}`,
-      `Entrega: ${entregaSelecionada}`,
-      `Endereço: ${endereco.trim() || "Não informado"}`,
-      `Pagamento: PIX`,
-      `Subtotal: ${formatCurrency(subtotal)}`,
-      `Taxa de entrega: ${formatCurrency(taxaEntrega)}`,
-      `Total pago: ${formatCurrency(total)}`,
-      "",
-      "Itens do pedido:",
-      itensResumoWhatsApp,
-      observacoes.trim() ? `\nObservações: ${observacoes.trim()}` : "",
-      "",
-      `Por favor, confirme que o cliente ${nome.trim() || "informado acima"} pagou e pode preparar o pedido dele.`,
-    ]
-      .filter(Boolean)
-      .join("\n");
-  }, [endereco, telefone, itensResumoWhatsApp, nome, observacoes, subtotal, taxaEntrega, tipoEntrega, total]);
-
-  const whatsappLink = `https://wa.me/${CASHIER_WHATSAPP}?text=${encodeURIComponent(mensagemWhatsApp)}`;
-
-  const copiarPix = () => {
-    if (!("clipboard" in navigator)) {
-      setAlerta({
-        titulo: "Aviso",
-        mensagem: `Não foi possível copiar automaticamente. Chave PIX: ${PIX_KEY}`,
-        tipo: "aviso",
-      });
-      return;
-    }
-    void navigator.clipboard
-      .writeText(PIX_KEY)
-      .then(() => mostrarMensagem("Chave PIX copiada."))
-      .catch(() =>
-        setAlerta({
-          titulo: "Aviso",
-          mensagem: `Não foi possível copiar automaticamente. Chave PIX: ${PIX_KEY}`,
-          tipo: "aviso",
-        }),
-      );
-  };
-
-  const abrirWhatsAppComprovante = () => {
-    if (!dadosConferenciaOk) {
-      setAlerta({
-        titulo: "Atenção",
-        mensagem:
-          "Preencha nome, WhatsApp válido e endereço (se for entrega) antes de enviar o comprovante.",
-        tipo: "erro",
-      });
-      return;
-    }
-    window.open(whatsappLink, "_blank", "noopener,noreferrer");
-  };
-
-  // PROTEÇÃO CONTRA CLIQUES SE ESTIVER FECHADO OU ESGOTADO
-  const adicionarItem = (item: Omit<ItemCarrinho, "quantidade">) => {
+  const adicionarItem = (item: Omit<ItemCarrinhoGarcom, "quantidade">) => {
     if (!lojaAberta) {
       setAlerta({
         titulo: "Loja Fechada",
-        mensagem: "Estamos fechados no momento! Abriremos às 18:00h.",
+        mensagem: "O sistema está fechado no momento!",
         tipo: "aviso",
       });
       return;
     }
     if (esgotados.includes(item.id)) {
       setAlerta({
-        titulo: "Item Esgotado",
-        mensagem: "Desculpe, este produto esgotou hoje!",
+        titulo: "Esgotado",
+        mensagem: "Aviso: Este item foi bloqueado pelo Caixa pois está ESGOTADO!",
         tipo: "erro",
       });
       return;
     }
-
-    setCarrinho((itensAtuais) => {
-      const existente = itensAtuais.find((itemAtual) => itemAtual.key === item.key);
-      if (!existente) return [...itensAtuais, { ...item, quantidade: 1 }];
-      return itensAtuais.map((itemAtual) =>
-        itemAtual.key === item.key
-          ? { ...itemAtual, quantidade: itemAtual.quantidade + 1 }
-          : itemAtual,
-      );
+    setPedido((estadoAtual) => {
+      const existente = estadoAtual.carrinho.find((itemAtual) => itemAtual.key === item.key);
+      const carrinho = existente
+        ? estadoAtual.carrinho.map((itemAtual) =>
+          itemAtual.key === item.key
+            ? { ...itemAtual, quantidade: itemAtual.quantidade + 1 }
+            : itemAtual,
+        )
+        : [...estadoAtual.carrinho, { ...item, quantidade: 1 }];
+      return { ...estadoAtual, carrinho };
     });
     avisarItemAdicionado(item.nome);
-  };
-
-  const alterarQuantidade = (key: string, delta: number) => {
-    if (!lojaAberta) return;
-    setCarrinho((itensAtuais) =>
-      itensAtuais
-        .map((item) => (item.key === key ? { ...item, quantidade: item.quantidade + delta } : item))
-        .filter((item) => item.quantidade > 0),
-    );
-  };
-
-  const removerItem = (key: string) => {
-    setCarrinho((itensAtuais) => itensAtuais.filter((item) => item.key !== key));
   };
 
   const adicionarPizzaMeia = () => {
     if (!lojaAberta) {
       setAlerta({
         titulo: "Loja Fechada",
-        mensagem: "Estamos fechados no momento! Abriremos às 18:00h.",
+        mensagem: "O sistema está fechado no momento!",
         tipo: "aviso",
       });
       return;
@@ -400,7 +298,7 @@ export function CustomerOrderPage() {
     if (esgotados.includes(saborA.id) || esgotados.includes(saborB.id)) {
       setAlerta({
         titulo: "Sabor Esgotado",
-        mensagem: "Um dos sabores escolhidos acabou no estoque!",
+        mensagem: "Aviso: Um dos sabores escolhidos está ESGOTADO!",
         tipo: "erro",
       });
       return;
@@ -416,24 +314,141 @@ export function CustomerOrderPage() {
       key: `pizza-meia-${meiaTamanho}-${saborA.id}-${saborB.id}`,
       id: saborA.id,
       nome: `Pizza meia ${saborA.name} / ${saborB.name}`,
-      categoria: "pizzas",
+      categoria: "pizza",
       tamanho: meiaTamanho,
       precoUnitario: Math.max(precoA, precoB),
       meia: { saborA: saborA.name, saborB: saborB.name },
     });
   };
 
+  const alterarQuantidade = (key: string, delta: number) => {
+    if (!lojaAberta) return;
+    setPedido((estadoAtual) => ({
+      ...estadoAtual,
+      carrinho: estadoAtual.carrinho
+        .map((item) => (item.key === key ? { ...item, quantidade: item.quantidade + delta } : item))
+        .filter((item) => item.quantidade > 0),
+    }));
+  };
+
+  const removerItem = (key: string) => {
+    setPedido((estadoAtual) => ({
+      ...estadoAtual,
+      carrinho: estadoAtual.carrinho.filter((item) => item.key !== key),
+    }));
+  };
+
+  const limparPedido = () => {
+    setConfirmarAcao({
+      mensagem: "Deseja realmente limpar a comanda inteira?",
+      onConfirm: () => {
+        setPedido({
+          nomeGarcom: "",
+          numeroMesa: "",
+          observacoes: "",
+          carrinho: [],
+        });
+        setModalCarrinhoAberto(false);
+      },
+    });
+  };
+
+  // ENVIAR PEDIDO PARA O FIREBASE (CAIXA)
+  const enviarPedido = async () => {
+    if (!lojaAberta) {
+      setAlerta({
+        titulo: "Loja Fechada",
+        mensagem: "A loja está fechada. Não é possível enviar comandos.",
+        tipo: "aviso",
+      });
+      return;
+    }
+    if (!pedido.nomeGarcom.trim()) {
+      setAlerta({ titulo: "Atenção", mensagem: "Informe o nome do garçom.", tipo: "aviso" });
+      return;
+    }
+
+    if (!pedido.numeroMesa.trim()) {
+      setAlerta({ titulo: "Atenção", mensagem: "Informe o número da mesa.", tipo: "aviso" });
+      return;
+    }
+
+    if (pedido.carrinho.length === 0 && !pedido.observacoes.trim()) {
+      setAlerta({
+        titulo: "Atenção",
+        mensagem: "Adicione itens ou uma observação para enviar.",
+        tipo: "aviso",
+      });
+      return;
+    }
+
+    if (pedido.carrinho.length === 0 && !isMesaAberta) {
+      setAlerta({
+        titulo: "Atenção",
+        mensagem: "Um novo pedido precisa ter pelo menos um item.",
+        tipo: "aviso",
+      });
+      return;
+    }
+
+    let mesaFinal = pedido.numeroMesa.trim();
+    if (/^\d+$/.test(mesaFinal)) {
+      mesaFinal = parseInt(mesaFinal, 10).toString();
+    }
+
+    let origemPedido = `MESA ${mesaFinal}`;
+    if (isMesaAberta) {
+      origemPedido = tipoComplemento === "acrescimo"
+        ? `ACRÉSCIMO - MESA ${mesaFinal}`
+        : `CORREÇÃO/RETIRADA - MESA ${mesaFinal}`;
+    }
+
+    const pedidoMesa: PedidoMesa = {
+      id: gerarIdPedido(),
+      data: new Date().toISOString(),
+      origem: origemPedido,
+      garcom: pedido.nomeGarcom.trim(),
+      mesa: mesaFinal,
+      pagamento: "A DEFINIR NO CAIXA",
+      itens: pedido.carrinho,
+      subtotal,
+      taxaEntrega: 0,
+      taxaServico: 0, // <-- TAXA ZERADA E REMOVIDA PARA O CAIXA
+      total,
+      impresso: false,
+      observacoes: pedido.observacoes.trim(),
+    };
+
+    try {
+      await setDoc(doc(db, "pedidos", pedidoMesa.id), pedidoMesa);
+      localStorage.removeItem(GARCOM_DRAFT_KEY);
+      setPedido({
+        nomeGarcom: pedido.nomeGarcom, // Mantém o nome do garçom para facilitar
+        numeroMesa: "",
+        observacoes: "",
+        carrinho: [],
+      });
+      setModalCarrinhoAberto(false);
+      setModalSucessoAberto(true);
+    } catch (error) {
+      console.error("Erro ao enviar comanda:", error);
+      setAlerta({
+        titulo: "Erro",
+        mensagem: "Falha ao enviar a comanda. Verifique sua conexão com a internet.",
+        tipo: "erro",
+      });
+    }
+  };
+
   const conteudoCarrinho = (isModal: boolean) => (
-    <section className={`flex flex-col border-primary bg-card ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2 overflow-hidden" : "rounded-lg border-2 shadow-[var(--shadow-warm)]"}`}>
-      <div className={`flex items-center justify-between gap-3 bg-primary px-4 py-3 text-primary-foreground ${isModal ? "shrink-0" : "border-b border-border"}`}>
+    <section className={`flex flex-col border-primary bg-card ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2 overflow-hidden" : "rounded-2xl border-2 shadow-sm"}`}>
+      <div className={`flex items-center justify-between gap-3 bg-primary px-5 py-4 text-primary-foreground ${isModal ? "shrink-0" : "border-b border-border"}`}>
         <h2 className="flex items-center gap-2 text-lg font-black uppercase">
-          <ShoppingCart size={20} aria-hidden="true" />
-          Carrinho
+          <ShoppingCart size={22} aria-hidden="true" />
+          Mesa {pedido.numeroMesa || "--"}
         </h2>
         <div className="flex items-center gap-3">
-          <span className="rounded-lg bg-primary-foreground/15 px-3 py-1 text-sm font-black">
-            {carrinho.reduce((totalItens, item) => totalItens + item.quantidade, 0)} itens
-          </span>
+          <strong>{formatCurrency(total)}</strong>
           {isModal && (
             <button
               type="button"
@@ -448,15 +463,15 @@ export function CustomerOrderPage() {
 
       <div className={`p-3 sm:p-4 space-y-4 ${isModal ? "flex-1 overflow-y-auto" : ""}`}>
         <div>
-          {carrinho.length === 0 ? (
+          {pedido.carrinho.length === 0 ? (
             <div className={`grid place-items-center rounded-lg border border-dashed border-border bg-background px-6 text-center ${isModal ? "min-h-32" : "min-h-44"}`}>
               <p className="text-sm font-semibold text-muted-foreground">
-                Seu carrinho está vazio.
+                Nenhum item na comanda.
               </p>
             </div>
           ) : (
             <ul className="space-y-2">
-              {carrinho.map((item) => (
+              {pedido.carrinho.map((item) => (
                 <li
                   key={item.key}
                   className="rounded-lg border border-border bg-background p-3"
@@ -516,65 +531,26 @@ export function CustomerOrderPage() {
         </div>
 
         <label className="block space-y-2">
-          <span className="text-sm font-bold text-foreground">Observações</span>
+          <span className="text-sm font-bold text-foreground">Observações da mesa</span>
           <textarea
-            value={observacoes}
-            onChange={(event) => setObservacoes(event.target.value)}
+            value={pedido.observacoes}
+            onChange={(event) =>
+              setPedido((estadoAtual) => ({
+                ...estadoAtual,
+                observacoes: event.target.value,
+              }))
+            }
             rows={2}
             className="w-full resize-none rounded-lg border border-border bg-background p-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
-            placeholder="Ex.: sem cebola, pouco orégano, troco para R$ 100"
+            placeholder="Ex.: servir pratos antes, sem cebola"
           />
         </label>
 
-        {formaPagamento === "PIX" && (
-          <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-green-950">
-            <div className="mb-2 flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-black uppercase text-green-800">Pagamento PIX</p>
-                <p className="text-xs font-semibold text-green-700">
-                  Copie a chave e envie o comprovante para o caixa conferir.
-                </p>
-              </div>
-            </div>
+        {/* --- CAIXINHA DA TAXA DE SERVIÇO FOI REMOVIDA DAQUI --- */}
 
-            <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-white p-2">
-              <code className="flex-1 break-all text-sm font-black text-green-900">
-                {PIX_KEY}
-              </code>
-              <button
-                type="button"
-                onClick={copiarPix}
-                className="flex h-9 items-center gap-2 rounded-lg bg-green-700 px-3 text-xs font-black uppercase text-white transition hover:bg-green-800"
-              >
-                <Copy size={15} aria-hidden="true" />
-                Copiar
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={abrirWhatsAppComprovante}
-              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#25D366] px-3 text-sm font-black uppercase text-white transition hover:bg-[#1fb458]"
-            >
-              <MessageCircle size={17} aria-hidden="true" />
-              Enviar comprovante
-            </button>
-          </div>
-        )}
-
-        <div className="space-y-2 rounded-lg bg-background border border-border p-3">
-          <div className="flex justify-between text-sm font-bold text-muted-foreground">
-            <span>Subtotal</span>
-            <span>{formatCurrency(subtotal)}</span>
-          </div>
-          <div className="flex justify-between text-sm font-bold text-muted-foreground">
-            <span>Entrega</span>
-            <span>{formatCurrency(taxaEntrega)}</span>
-          </div>
-          <div className="flex justify-between border-t border-border pt-2 text-xl font-black text-primary">
-            <span>Total</span>
-            <span>{formatCurrency(total)}</span>
-          </div>
+        <div className="flex items-center justify-between rounded-lg bg-background border border-border p-3">
+          <span className="text-sm font-black uppercase text-muted-foreground">Total</span>
+          <span className="text-2xl font-black text-primary">{formatCurrency(total)}</span>
         </div>
       </div>
 
@@ -582,108 +558,40 @@ export function CustomerOrderPage() {
         <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
-            onClick={() => setCarrinho([])}
-            disabled={carrinho.length === 0}
+            onClick={limparPedido}
+            disabled={
+              pedido.carrinho.length === 0 && !pedido.numeroMesa && !pedido.nomeGarcom
+            }
             className="rounded-lg border border-border bg-background py-3 text-sm font-black uppercase text-foreground transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-45"
           >
             Limpar
           </button>
           <button
             type="button"
-            onClick={finalizarPedido}
-            disabled={!dadosConferenciaOk || !lojaAberta}
+            onClick={enviarPedido}
+            disabled={pedido.carrinho.length === 0 && !pedido.observacoes.trim()}
             className="flex items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black uppercase text-primary-foreground shadow-[var(--shadow-warm)] transition hover:bg-[var(--brand-red-dark)] disabled:cursor-not-allowed disabled:opacity-45"
           >
-            <ReceiptText size={17} aria-hidden="true" />
-            {lojaAberta ? "Finalizar" : "Fechado"}
+            <Send size={17} aria-hidden="true" />
+            Enviar
           </button>
         </div>
       </div>
     </section>
   );
 
-  const finalizarPedido = async () => {
-    if (!lojaAberta) {
-      setAlerta({
-        titulo: "Loja Fechada",
-        mensagem: "A loja está fechada. Volte mais tarde!",
-        tipo: "aviso",
-      });
-      return;
-    }
-    if (carrinho.length === 0) {
-      setAlerta({
-        titulo: "Carrinho Vazio",
-        mensagem: "Adicione pelo menos um item ao carrinho.",
-        tipo: "aviso",
-      });
-      return;
-    }
-    if (!dadosConferenciaOk) {
-      setAlerta({
-        titulo: "Dados Incompletos",
-        mensagem: "Preencha os dados de contato corretamente antes de finalizar o pedido.",
-        tipo: "erro",
-      });
-      return;
-    }
-
-    const entregaSelecionada = opcoesEntrega.find((opcao) => opcao.value === tipoEntrega);
-    const pedido: Pedido = {
-      id: gerarIdPedido(),
-      data: new Date().toISOString(),
-      origem: entregaSelecionada?.label ?? "Cliente",
-      cliente: {
-        nome: nome.trim(),
-        endereco: endereco.trim(),
-        telefone: tipoEntrega !== "NO_LOCAL" ? telefone.replace(/\D/g, "") : ""
-      },
-      tipoEntrega,
-      pagamento: formaPagamento,
-      itens: carrinho,
-      subtotal,
-      taxaEntrega,
-      total,
-      impresso: false,
-      observacoes: observacoes.trim(),
-    };
-
-    try {
-      await setDoc(doc(db, "pedidos", pedido.id), pedido);
-      localStorage.removeItem(CLIENT_DRAFT_KEY);
-      setCarrinho([]);
-      setObservacoes("");
-      setModalCarrinhoAberto(false);
-      setModalSucessoAberto(true);
-    } catch (error) {
-      console.error("Erro ao salvar pedido:", error);
-      setAlerta({
-        titulo: "Falha na Conexão",
-        mensagem: "Falha ao enviar o pedido. Verifique sua conexão com a internet.",
-        tipo: "erro",
-      });
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-background pb-12 lg:pb-0">
+    <main className="min-h-screen bg-background pb-12 lg:pb-0">
       <header className="sticky top-0 z-30 border-b border-border bg-card/95 shadow-[var(--shadow-card)] backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3">
-          <img
-            src={logo}
-            alt="Pizzaria 2 Irmãos"
-            className={`h-14 w-14 rounded-lg object-cover ring-2 ring-secondary ${!lojaAberta ? "grayscale" : ""}`}
-          />
           <div className="flex-1">
-            <h1 className="text-2xl font-black uppercase text-primary md:text-3xl">
-              Pizzaria 2 Irmãos
-            </h1>
-            <p className="text-sm font-semibold text-muted-foreground">
-              Cardápio Digital - {horarioFuncionamento} Faça seu pedido e retire ou receba em casa!
+            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+              Atendimento de mesa
             </p>
+            <h1 className="text-2xl font-black text-primary">Painel do Garçom</h1>
             {!lojaAberta && (
               <div className="mt-2 inline-block rounded bg-red-600 px-3 py-1 text-xs font-black uppercase tracking-wider text-white shadow-md animate-pulse">
-                ⚠️ Fechado no momento. Abrimos às 18:00h!
+                ⚠️ Fechado no momento.
               </div>
             )}
           </div>
@@ -701,7 +609,7 @@ export function CustomerOrderPage() {
         </div>
       )}
 
-      {/* MODAL GLOBAL DE ALERTA */}
+      {/* --- MODAL GLOBAL DE ALERTA --- */}
       {alerta && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity">
           <div className="w-full max-w-sm animate-in fade-in zoom-in-95 rounded-2xl bg-card p-6 text-center shadow-2xl duration-200 border border-border">
@@ -728,116 +636,148 @@ export function CustomerOrderPage() {
         </div>
       )}
 
-      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[1fr_400px]">
-        <main
-          className={`space-y-5 transition-all duration-300 ${!lojaAberta ? "pointer-events-none opacity-50 grayscale" : ""}`}
+      {/* --- MODAL DE CONFIRMAÇÃO --- */}
+      {confirmarAcao && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity">
+          <div className="w-full max-w-sm animate-in fade-in zoom-in-95 rounded-2xl bg-card p-6 text-center shadow-2xl duration-200 border border-border">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-orange-100 text-orange-600">
+              <AlertTriangle size={36} strokeWidth={2.5} />
+            </div>
+            <h2 className="mb-2 text-2xl font-black text-foreground">Atenção</h2>
+            <p className="mb-6 font-semibold text-muted-foreground leading-relaxed">
+              {confirmarAcao.mensagem}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmarAcao(null)}
+                className="flex-1 rounded-xl border border-border bg-background py-3 text-sm font-bold text-foreground transition hover:bg-muted active:scale-95"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  confirmarAcao.onConfirm();
+                  setConfirmarAcao(null);
+                }}
+                className="flex-1 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground shadow-md transition hover:bg-[var(--brand-red-dark)] active:scale-95"
+              >
+                Sim, Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[1fr_390px]">
+        <section
+          className={`space-y-4 transition-all duration-300 ${!lojaAberta ? "pointer-events-none opacity-50 grayscale" : ""}`}
         >
-          <section className="rounded-lg border border-border bg-card p-4 shadow-[var(--shadow-card)]">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <label className="space-y-2">
-                <span className="flex items-center gap-2 text-sm font-bold text-foreground">
+          <div className="bg-card border border-border rounded-xl p-5 sm:p-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
+              <label className="flex-1 space-y-2">
+                <span className="flex items-center gap-2 text-[10px] md:text-xs font-black uppercase text-muted-foreground">
                   <UserRound size={16} aria-hidden="true" />
-                  Nome
+                  Nome do Garçom
                 </span>
                 <input
-                  value={nome}
-                  onChange={(event) => setNome(event.target.value)}
-                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
-                  placeholder="Seu nome"
+                  value={pedido.nomeGarcom}
+                  onChange={(event) =>
+                    setPedido((estadoAtual) => ({
+                      ...estadoAtual,
+                      nomeGarcom: event.target.value,
+                    }))
+                  }
+                  className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-bold outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 shadow-inner"
+                  placeholder="Ex.: João"
                 />
               </label>
 
-              <label className="space-y-2">
-                <span className="flex items-center gap-2 text-sm font-bold text-foreground">
-                  <MessageCircle size={16} aria-hidden="true" />
-                  WhatsApp
-                </span>
+              <label className="flex-1 space-y-2">
+                <span className="text-[10px] md:text-xs font-black uppercase text-muted-foreground">Número da Mesa</span>
                 <input
-                  type="tel"
-                  value={telefone}
-                  onChange={(event) => setTelefone(event.target.value)}
-                  disabled={tipoEntrega === "NO_LOCAL"}
-                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10 disabled:opacity-50"
-                  placeholder="(DDD) 99999-9999"
+                  value={pedido.numeroMesa}
+                  onChange={(event) =>
+                    setPedido((estadoAtual) => ({
+                      ...estadoAtual,
+                      numeroMesa: event.target.value.replace(/\D/g, ""),
+                    }))
+                  }
+                  inputMode="numeric"
+                  className="h-12 w-full rounded-xl border-2 border-primary/50 bg-background px-4 text-center text-xl font-black outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/20 shadow-inner"
+                  placeholder="00"
                 />
-              </label>
-
-              <label className="space-y-2">
-                <span className="flex items-center gap-2 text-sm font-bold text-foreground">
-                  <MapPin size={16} aria-hidden="true" />
-                  Endereço
-                </span>
-                <input
-                  value={endereco}
-                  onChange={(event) => setEndereco(event.target.value)}
-                  disabled={tipoEntrega === "NO_LOCAL"}
-                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10 disabled:opacity-50"
-                  placeholder="Rua, número, bairro"
-                />
-              </label>
-
-              <label className="space-y-2">
-                <span className="flex items-center gap-2 text-sm font-bold text-foreground">
-                  <CreditCard size={16} aria-hidden="true" />
-                  Pagamento
-                </span>
-                <select
-                  value={formaPagamento}
-                  onChange={(event) => setFormaPagamento(event.target.value as FormaPagamento)}
-                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-bold outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
-                >
-                  {formasPagamento.map((forma) => (
-                    <option key={forma} value={forma}>
-                      {forma}
-                    </option>
-                  ))}
-                </select>
               </label>
             </div>
 
-            <div className="mt-4 grid gap-2 sm:grid-cols-3">
-              {opcoesEntrega.map((opcao) => {
-                const Icon = opcao.icon;
-                const selecionado = tipoEntrega === opcao.value;
+            {mesasAbertas.length > 0 && (
+              <div className="mt-5 pt-4 border-t border-border">
+                <span className="text-[10px] font-black uppercase text-muted-foreground mb-3 block">Mesas em atendimento (Toque para adicionar itens):</span>
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                  {mesasAbertas.map((m) => {
+                    const isSelected = mesaInputNormalizada === m;
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setPedido(prev => ({ ...prev, numeroMesa: m }))}
+                        className={`flex-shrink-0 px-5 py-2.5 rounded-xl text-xs font-black uppercase transition-all border ${isSelected
+                          ? "bg-yellow-500 text-white border-yellow-600 shadow-md ring-2 ring-yellow-500/20"
+                          : "bg-yellow-50 text-yellow-800 border-yellow-200 hover:bg-yellow-100"
+                          }`}
+                      >
+                        Mesa {m}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
-                return (
-                  <button
-                    key={opcao.value}
-                    type="button"
-                    onClick={() => setTipoEntrega(opcao.value)}
-                    className={`flex items-center justify-between rounded-lg border-2 p-3 text-left transition ${selecionado
-                      ? "border-primary bg-primary text-primary-foreground shadow-[var(--shadow-warm)]"
-                      : "border-border bg-background text-foreground hover:border-primary"
-                      }`}
-                  >
-                    <span className="flex items-center gap-3">
-                      <Icon size={20} aria-hidden="true" />
-                      <span>
-                        <span className="block text-sm font-black">{opcao.label}</span>
-                        <span
-                          className={`block text-xs font-semibold ${selecionado ? "text-primary-foreground/85" : "text-muted-foreground"
-                            }`}
-                        >
-                          {opcao.detalhe}
-                        </span>
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
+            {isMesaAberta && (
+              <div className="mt-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 p-4 sm:p-5 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-1.5 h-full bg-yellow-500"></div>
+                <p className="text-sm font-black text-yellow-700 flex items-center gap-2 mb-3">
+                  <AlertTriangle size={18} />
+                  Mesa {mesaInputNormalizada} já está aberta
+                </p>
+                <p className="text-xs text-yellow-700/80 mb-4 font-semibold">
+                  Selecione se deseja adicionar novos itens ou retirar/corrigir algo do pedido atual.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <label className={`flex-1 flex items-center justify-center gap-2 text-xs font-black uppercase px-4 py-3 rounded-xl cursor-pointer transition-all border ${tipoComplemento === 'acrescimo' ? 'bg-yellow-500 text-white border-yellow-600 shadow-md' : 'bg-background border-yellow-300 text-yellow-700 hover:bg-yellow-50'}`}>
+                    <input
+                      type="radio"
+                      checked={tipoComplemento === "acrescimo"}
+                      onChange={() => setTipoComplemento("acrescimo")}
+                      className="sr-only"
+                    />
+                    <Plus size={16} /> Acréscimo de Itens
+                  </label>
+                  <label className={`flex-1 flex items-center justify-center gap-2 text-xs font-black uppercase px-4 py-3 rounded-xl cursor-pointer transition-all border ${tipoComplemento === 'correcao' ? 'bg-yellow-500 text-white border-yellow-600 shadow-md' : 'bg-background border-yellow-300 text-yellow-700 hover:bg-yellow-50'}`}>
+                    <input
+                      type="radio"
+                      checked={tipoComplemento === "correcao"}
+                      onChange={() => setTipoComplemento("correcao")}
+                      className="sr-only"
+                    />
+                    <Minus size={16} /> Retirada / Correção
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
 
-          <section className="rounded-lg border border-border bg-card p-4 shadow-[var(--shadow-card)]">
-            <div className="mb-4 flex flex-wrap gap-2">
+          {/* ÁREA DE ABAS E CARDÁPIO COMPLETO */}
+          <div className="bg-card border border-border rounded-xl p-5 sm:p-6 shadow-sm">
+            <div className="mb-6 flex flex-wrap gap-2">
               {tabs.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => setTab(item.id)}
-                  className={`rounded-lg px-4 py-2 text-sm font-black uppercase transition ${tab === item.id
-                    ? "bg-primary text-primary-foreground shadow-[var(--shadow-warm)]"
-                    : "bg-background text-foreground hover:bg-secondary"
+                  className={`rounded-xl px-5 py-2.5 text-sm font-black uppercase transition-all ${tab === item.id
+                    ? "bg-primary text-primary-foreground shadow-md ring-2 ring-primary/20"
+                    : "bg-background text-muted-foreground border border-border hover:bg-muted"
                     }`}
                 >
                   {item.label}
@@ -845,6 +785,7 @@ export function CustomerOrderPage() {
               ))}
             </div>
 
+            {/* ABA: PIZZAS */}
             {tab === "pizzas" && (
               <div className="grid gap-3">
                 <div className="rounded-lg border-2 border-dashed border-primary/45 bg-background p-4">
@@ -912,7 +853,7 @@ export function CustomerOrderPage() {
                   </div>
                 </div>
 
-                {pizzas.map((pizza: any) => {
+                {pizzas.map((pizza) => {
                   const esgotado = esgotados.includes(pizza.id);
                   const override = menuOverrides[String(pizza.id)] || {};
                   const descricaoPizza = override.ingredientes !== undefined ? override.ingredientes : pizza.description;
@@ -958,7 +899,7 @@ export function CustomerOrderPage() {
                                   key: `pizza-${pizza.id}-${tamanho}`,
                                   id: pizza.id,
                                   nome: `Pizza ${pizza.name}`,
-                                  categoria: "pizzas",
+                                  categoria: "pizza",
                                   tamanho,
                                   precoUnitario: precoTamanho,
                                 })
@@ -979,6 +920,7 @@ export function CustomerOrderPage() {
               </div>
             )}
 
+            {/* DEMAIS ABAS (Pastéis, Porções, Bebidas, Sucos) */}
             {tab !== "pizzas" && (
               <div className="grid gap-3 sm:grid-cols-2">
                 {((tab === "pasteis"
@@ -991,7 +933,7 @@ export function CustomerOrderPage() {
                 ) as any[]).map((item: any) => {
                   const esgotado = esgotados.includes(item.id);
                   const override = menuOverrides[String(item.id)] || {};
-                  const descricaoItem = override.ingredientes !== undefined ? override.ingredientes : (item as any).description;
+                  const descricaoItem = override.ingredientes !== undefined ? override.ingredientes : item.description;
                   const precoBase = override.preco !== undefined ? override.preco : item.price;
 
                   if (tab === "sucos") {
@@ -1021,10 +963,10 @@ export function CustomerOrderPage() {
                             disabled={esgotado}
                             onClick={() =>
                               adicionarItem({
-                                key: `sucos-${item.id}-natural`,
+                                key: `suco-${item.id}-natural`,
                                 id: item.id,
                                 nome: `Suco ${item.name}`,
-                                categoria: "sucos",
+                                categoria: "suco", // Corrigido para "suco"
                                 precoUnitario: precoBase,
                               })
                             }
@@ -1043,10 +985,10 @@ export function CustomerOrderPage() {
                             disabled={esgotado}
                             onClick={() =>
                               adicionarItem({
-                                key: `sucos-${item.id}-ao-leite`,
+                                key: `suco-${item.id}-ao-leite`,
                                 id: item.id,
                                 nome: `Suco ${item.name} ao leite`,
-                                categoria: "sucos",
+                                categoria: "suco", // Corrigido para "suco"
                                 precoUnitario: precoBase + SUCO_AO_LEITE_ACRESCIMO,
                               })
                             }
@@ -1074,7 +1016,8 @@ export function CustomerOrderPage() {
                           key: `${tab}-${item.id}`,
                           id: item.id,
                           nome: item.name,
-                          categoria: tab,
+                          categoria:
+                            tab === "pasteis" ? "pastel" : tab === "porcoes" ? "porcao" : "bebida",
                           precoUnitario: precoBase,
                         })
                       }
@@ -1104,8 +1047,8 @@ export function CustomerOrderPage() {
                 })}
               </div>
             )}
-          </section>
-        </main>
+          </div>
+        </section>
 
         <aside
           className={`hidden lg:block lg:sticky lg:top-24 lg:self-start transition-all duration-300 ${!lojaAberta ? "pointer-events-none opacity-50 grayscale" : ""}`}
@@ -1128,9 +1071,11 @@ export function CustomerOrderPage() {
               <CheckCircle2 size={36} strokeWidth={2.5} />
             </div>
 
-            <h2 className="mb-2 text-2xl font-black text-foreground">Pedido Enviado!</h2>
+            <h2 className="mb-2 text-2xl font-black text-foreground">
+              Mesa {pedido.numeroMesa} Enviada!
+            </h2>
             <p className="mb-6 font-semibold text-muted-foreground">
-              Seu pedido foi encaminhado para o caixa com sucesso.
+              A comanda foi encaminhada para o caixa com sucesso.
             </p>
 
             <button
@@ -1138,14 +1083,14 @@ export function CustomerOrderPage() {
               onClick={() => setModalSucessoAberto(false)}
               className="w-full rounded-xl bg-primary py-3 text-lg font-bold text-primary-foreground shadow-md transition hover:bg-[var(--brand-red-dark)] active:scale-95"
             >
-              Fechar e Voltar
+              Fazer novo pedido
             </button>
           </div>
         </div>
       )}
 
       {/* BOTÃO FLUTUANTE DO CARRINHO (Apenas Mobile/Tablets) */}
-      {carrinho.length > 0 && (
+      {(pedido.carrinho.length > 0 || pedido.observacoes.trim().length > 0) && (
         <button
           type="button"
           onClick={() => setModalCarrinhoAberto(true)}
@@ -1154,15 +1099,15 @@ export function CustomerOrderPage() {
           <div className="relative flex items-center">
             <ShoppingCart size={24} />
             <span className="absolute -right-2.5 -top-2.5 flex h-5.5 w-5.5 items-center justify-center rounded-full bg-background text-[11px] text-primary shadow-sm border border-border">
-              {carrinho.reduce((totalItens, item) => totalItens + item.quantidade, 0)}
+              {pedido.carrinho.reduce((totalItens, item) => totalItens + item.quantidade, 0)}
             </span>
           </div>
           <span className="flex flex-col text-left border-l border-primary-foreground/30 pl-3 ml-1">
-            <span className="text-[10px] uppercase tracking-wider leading-none opacity-90 mb-1">Ver Carrinho</span>
+            <span className="text-[10px] uppercase tracking-wider leading-none opacity-90 mb-1">Ver Comanda</span>
             <span className="text-sm leading-none">{formatCurrency(total)}</span>
           </span>
         </button>
       )}
-    </div>
+    </main>
   );
 }
