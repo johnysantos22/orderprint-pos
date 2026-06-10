@@ -230,12 +230,11 @@ function CaixaPage() {
         return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       };
 
-      // Descobre se o garçom enviou como Acréscimo ou Correção
       const origemDoPedido = (opcoes.origem ?? pedido.origem ?? "").toUpperCase();
       const isAcrescimo = origemDoPedido.includes("ACRÉSCIMO") || origemDoPedido.includes("ACRESCIMO");
       const isCorrecao = origemDoPedido.includes("CORREÇÃO") || origemDoPedido.includes("CORRECAO") || origemDoPedido.includes("RETIRADA");
 
-      // --- 2. O TRUQUE: EMBUTIR AVISOS NO NOME E OBSERVAÇÕES ---
+      // --- 2. NOME E MESA ---
       let nomeParaImpressao = opcoes.pessoa || pedido.cliente?.nome || pedido.garcom || "Balcao";
 
       if (pedido.mesa && !conferencia) {
@@ -248,16 +247,21 @@ function CaixaPage() {
         }
       }
 
-      let observacoesParaImpressao = pedido.observacoes || "";
+      // --- 3. O TRUQUE: ENDEREÇO ABAIXO DO TELEFONE ---
+      let telefoneParaImpressao = pedido.telefone || pedido.cliente?.telefone || "";
 
       if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
-        const enderecoFormatado = `ENDERECO: ${pedido.cliente.endereco}`;
-        observacoesParaImpressao = observacoesParaImpressao
-          ? `${enderecoFormatado} | OBS: ${observacoesParaImpressao}`
-          : enderecoFormatado;
+        // O "\n" força a impressora a pular de linha!
+        if (telefoneParaImpressao) {
+          telefoneParaImpressao = `${telefoneParaImpressao}\nEndereco: ${pedido.cliente.endereco}`;
+        } else {
+          telefoneParaImpressao = `\nEndereco: ${pedido.cliente.endereco}`;
+        }
       }
 
-      // Se for acréscimo ou correção, avisa também nas observações no final do cupom
+      // --- 4. OBSERVAÇÕES (Agora apenas com os avisos reais) ---
+      let observacoesParaImpressao = pedido.observacoes || "";
+
       if (isAcrescimo && !conferencia) {
         const aviso = `*** ATENCAO: ISTO E UM ACRESCIMO DA MESA ${pedido.mesa} ***`;
         observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
@@ -269,13 +273,12 @@ function CaixaPage() {
       try {
         setStatusImpressao(`Enviando pedido para o Motor Local...`);
 
-        // --- 3. O PACOTE LIMPO PARA O MOTOR ---
         await axios.post(`${impressoraUrl}/imprimir`, {
           id: removerAcentos(pedido.id),
           data: pedido.data,
           origem: removerAcentos(origemDoPedido),
           cliente: removerAcentos(nomeParaImpressao),
-          telefone: pedido.telefone || pedido.cliente?.telefone || "",
+          telefone: removerAcentos(telefoneParaImpressao), // <-- Envia Telefone + Quebra de Linha + Endereço
           total: pedido.total,
           itens: pedido.itens.map(item => ({
             ...item,
