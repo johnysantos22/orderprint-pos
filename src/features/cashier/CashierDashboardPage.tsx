@@ -218,9 +218,9 @@ function CaixaPage() {
 
   const atendimentoAtual = atendimentosAbertos.find((a) => a.id === atendimentoSelecionado);
 
-  // =======================================================
-  // MOTOR DE IMPRESSÃO 100% TELA PRETA (Zero Navegador)
-  // =======================================================
+  // ====================================================================================
+  // FUNÇÃO ORIGINAL RESTAURADA: Envia os dados exatamente como a tela preta gosta
+  // ====================================================================================
   const imprimirCupom = useCallback(
     async (pedido: Pedido, opcoes: ImprimirCupomOptions = {}) => {
       const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
@@ -249,20 +249,25 @@ function CaixaPage() {
         }
       }
 
-      let dadosContato = "";
-      const telefoneReal = pedido.telefone || pedido.cliente?.telefone || "";
+      // RESTAURANDO A LÓGICA DE TELEFONE ORIGINAL
+      let telefoneParaImpressao = pedido.telefone || pedido.cliente?.telefone || "";
 
-      if (telefoneReal.trim() !== "") {
-        dadosContato += `${telefoneReal}\n`;
-      }
       if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
-        dadosContato += `Endereco: ${pedido.cliente.endereco}\n`;
+        const enderecoTxt = `Endereco de Entrega: ${pedido.cliente.endereco}`;
+        telefoneParaImpressao = telefoneParaImpressao
+          ? `${telefoneParaImpressao}\n${enderecoTxt}`
+          : `\n${enderecoTxt}`;
       }
+
       if (pedido.pagamento) {
-        dadosContato += `Pagamento: ${pedido.pagamento.toUpperCase()}`;
+        const pagFormatado = `Pagamento: ${pedido.pagamento.toUpperCase()}`;
+        telefoneParaImpressao = telefoneParaImpressao
+          ? `${telefoneParaImpressao}\n${pagFormatado}`
+          : `\n${pagFormatado}`;
       }
 
       let observacoesParaImpressao = pedido.observacoes || "";
+
       if (isAcrescimo && !conferencia && !pedido.id.startsWith("CONF-")) {
         const aviso = `*** ATENCAO: ACRESCIMO DA MESA ${pedido.mesa} ***`;
         observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
@@ -272,35 +277,36 @@ function CaixaPage() {
       }
 
       try {
-        setStatusImpressao(`Enviando para a Tela Preta...`);
+        setStatusImpressao(`Enviando pedido para a Tela Preta...`);
 
-        // Dispara o JSON direto pro NodeJS
+        // Timeout adicionado para não travar se o Windows bugar a impressora
         await axios.post(`${impressoraUrl}/imprimir`, {
           id: removerAcentos(pedido.id),
           data: pedido.data,
           origem: removerAcentos(origemDoPedido),
           cliente: removerAcentos(nomeParaImpressao),
-          telefone: removerAcentos(dadosContato.trim()),
+          telefone: removerAcentos(telefoneParaImpressao),
           total: pedido.total,
           taxaEntrega: pedido.taxaEntrega || 0,
           itens: pedido.itens.map(item => ({
-            quantidade: item.quantidade,
+            ...item,
             nome: removerAcentos(item.nome),
             tamanho: item.tamanho ? removerAcentos(item.tamanho) : ""
           })),
+          taxaServico: 0,
           observacoes: removerAcentos(observacoesParaImpressao)
-        });
+        }, { timeout: 8000 });
 
-        setStatusImpressao(`Cupom impresso na tela preta!`);
+        setStatusImpressao(`Cupom processado!`);
       } catch (error) {
-        console.warn("Falha na ponte local:", error);
+        console.warn("Falha na ponte local de impressão:", error);
         setStatusImpressao("Erro na comunicação com a impressora.");
         setAlerta({
-          titulo: "Impressora Offline 🖨️",
-          mensagem: "A tela preta não respondeu. Certifique-se de que o iniciar.bat está rodando.",
+          titulo: "Impressora Offline ou Fila Travada 🖨️",
+          mensagem: "O Windows rejeitou o documento. Cancele os documentos com erro na fila do Windows, verifique o cabo USB e tente novamente.",
           tipo: "erro",
         });
-        throw new Error("Falha na comunicação com a impressora");
+        throw error;
       }
     },
     []
@@ -317,7 +323,6 @@ function CaixaPage() {
             impressoEm: new Date().toISOString(),
           });
 
-          // Notificação de WhatsApp (Sem travar o sistema se der erro)
           let telefoneCliente = p.telefone || p.cliente?.telefone;
           if (telefoneCliente && !p.id.startsWith("CONF-")) {
             telefoneCliente = telefoneCliente.replace(/\D/g, '');
@@ -364,7 +369,7 @@ function CaixaPage() {
           try {
             await imprimirPedido(pendente);
           } catch (e) {
-            temPendente = false;
+            temPendente = false; // Interrompe se a impressora não responder, protegendo o sistema
           }
         } else {
           temPendente = false;
@@ -401,7 +406,7 @@ function CaixaPage() {
       id: `CONF-${atend.titulo.replace(/\s+/g, "-")}`,
       data: new Date().toISOString(),
       origem: atend.titulo,
-      pagamento: "A DEFINIR",
+      pagamento: "CONFERENCIA",
       itens: itensConsolidados,
       subtotal: atend.total,
       total: atend.total,
@@ -409,7 +414,7 @@ function CaixaPage() {
       observacoes: "*** CONFERENCIA DE MESA ***",
       cliente: { nome: "Balcao" }
     };
-    await imprimirCupom(pedidoConferencia, { tipoCupom: "conferencia" });
+    await imprimirCupom(pedidoConferencia, { tipoCupom: "conferencia", pessoa: "Balcao" });
   };
 
   const pendentes = pedidos.filter(
@@ -708,7 +713,7 @@ function CaixaPage() {
     if (!whatsappUrl || !instancia || !apiKey) {
       setAlerta({
         titulo: "Erro de Configuração",
-        mensagem: "As variáveis do WhatsApp não estão configuradas.",
+        mensagem: "As variáveis do WhatsApp não estão configuradas no arquivo .env.",
         tipo: "erro"
       });
       setCarregandoQr(false);
@@ -744,7 +749,7 @@ function CaixaPage() {
     } catch (error: any) {
       setAlerta({
         titulo: "Falha de Conexão",
-        mensagem: "Não foi possível gerar o QR Code. Verifique a tela preta.",
+        mensagem: "Não foi possível gerar o QR Code. Verifique se o Motor do WhatsApp está rodando e se a instância existe.",
         tipo: "erro"
       });
     } finally {
@@ -1249,6 +1254,13 @@ function CaixaPage() {
                             Defina os códigos PIN numéricos para restringir e proteger o acesso às áreas operacionais do sistema.
                           </p>
                         </div>
+
+                        <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-amber-800 text-xs font-semibold flex gap-3 items-start shadow-sm">
+                          <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+                          <p>
+                            Recomendamos criar senhas diferentes para o Caixa e para os Garçons. Senhas fáceis (como 1234) podem comprometer a segurança da loja.
+                          </p>
+                        </div>
                       </div>
 
                       <div className="flex-1 w-full space-y-4">
@@ -1259,6 +1271,7 @@ function CaixaPage() {
                             </div>
                             <div>
                               <h4 className="font-black text-sm uppercase text-foreground">Senha do Caixa</h4>
+                              <p className="text-[10px] font-semibold text-muted-foreground">Acesso total ao Painel PDV</p>
                             </div>
                           </div>
                           <div className="flex gap-2">
@@ -1289,6 +1302,7 @@ function CaixaPage() {
                             </div>
                             <div>
                               <h4 className="font-black text-sm uppercase text-foreground">Senha da Equipe</h4>
+                              <p className="text-[10px] font-semibold text-muted-foreground">Acesso à Comanda no Salão</p>
                             </div>
                           </div>
                           <div className="flex gap-2">
@@ -1328,6 +1342,16 @@ function CaixaPage() {
                               </div>
                               <h3 className="text-xl sm:text-2xl font-black text-foreground">Horário da Loja</h3>
                             </div>
+                            <p className="text-sm font-semibold text-muted-foreground">
+                              Configure o texto do horário de funcionamento que será exibido aos clientes no catálogo digital e neste painel.
+                            </p>
+                          </div>
+
+                          <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-blue-800 text-xs font-semibold flex gap-3 items-start shadow-sm">
+                            <Store size={18} className="shrink-0 mt-0.5" />
+                            <p>
+                              O botão de "Aberta/Fechada" do painel lateral no PDV é que determina se o sistema aceita pedidos. Este texto aqui serve apenas para informação visual ao cliente.
+                            </p>
                           </div>
                         </div>
 
@@ -1339,6 +1363,7 @@ function CaixaPage() {
                               </div>
                               <div>
                                 <h4 className="font-black text-sm uppercase text-foreground">Dias e Horários</h4>
+                                <p className="text-[10px] font-semibold text-muted-foreground">Texto em formato livre</p>
                               </div>
                             </div>
                             <div className="flex flex-col gap-3">
@@ -1348,7 +1373,7 @@ function CaixaPage() {
                                   type="text"
                                   value={horarioFuncionamento}
                                   onChange={(e) => setHorarioFuncionamento(e.target.value)}
-                                  placeholder="Horário"
+                                  placeholder="Ex: 🕒 Quarta a Domingo | das 18h às 22h."
                                   className="h-12 w-full rounded-xl border border-border bg-background pl-9 pr-4 font-bold text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
                                 />
                               </div>
@@ -1373,6 +1398,9 @@ function CaixaPage() {
                             </div>
                             <h3 className="text-xl sm:text-2xl font-black text-foreground">Edição de Cardápio</h3>
                           </div>
+                          <p className="text-sm font-semibold text-muted-foreground">
+                            Altere preços e a descrição/ingredientes dos produtos. As atualizações refletem imediatamente no catálogo do cliente e no app do garçom.
+                          </p>
                         </div>
 
                         <div className="flex-1 w-full bg-muted/30 border border-border rounded-xl p-5">
@@ -1451,12 +1479,12 @@ function CaixaPage() {
                             </div>
                           ) : qrCodeBase64 ? (
                             <div className="bg-white p-3 sm:p-4 rounded-xl shadow-xl ring-1 ring-border relative z-10 w-full flex justify-center">
-                              <img src={qrCodeBase64} alt="QR Code" className="w-full max-w-[200px] md:max-w-[240px] h-auto object-contain" />
+                              <img src={qrCodeBase64} alt="QR Code WhatsApp" className="w-full max-w-[200px] md:max-w-[240px] h-auto object-contain" />
                             </div>
                           ) : (
                             <div className="flex flex-col items-center justify-center text-center opacity-40 grayscale">
                               <QrCode size={64} className="mb-4 text-muted-foreground" />
-                              <p className="text-xs font-black uppercase text-muted-foreground">Aguardando geração</p>
+                              <p className="text-xs font-black uppercase text-muted-foreground">Aguardando geração<br />do código</p>
                             </div>
                           )}
                         </div>
