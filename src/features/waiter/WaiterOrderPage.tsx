@@ -142,7 +142,6 @@ function GarcomPage() {
   const [mensagemCarrinho, setMensagemCarrinho] = useState("");
   const [modalSucessoAberto, setModalSucessoAberto] = useState(false);
   const [modalCarrinhoAberto, setModalCarrinhoAberto] = useState(false);
-  const [cobrarTaxaServico, setCobrarTaxaServico] = useState(true);
 
   // ESTADOS DE CONFIGURAÇÕES E ALERTAS
   const [esgotados, setEsgotados] = useState<number[]>([]);
@@ -168,8 +167,7 @@ function GarcomPage() {
     [pedido.carrinho],
   );
 
-  const taxaServico = cobrarTaxaServico ? subtotal * 0.1 : 0;
-  const total = subtotal + taxaServico;
+  const total = subtotal;
 
   useEffect(() => {
     const draft: GarcomDraft = {
@@ -415,7 +413,7 @@ function GarcomPage() {
       itens: pedido.carrinho,
       subtotal,
       taxaEntrega: 0,
-      taxaServico,
+      taxaServico: 0,
       total,
       impresso: false,
       observacoes: pedido.observacoes.trim(),
@@ -547,14 +545,6 @@ function GarcomPage() {
             placeholder="Ex.: servir pratos antes, sem cebola"
           />
         </label>
-
-        <div className="flex items-center justify-between rounded-lg bg-background border border-border p-3">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={cobrarTaxaServico} onChange={(e) => setCobrarTaxaServico(e.target.checked)} className="rounded text-primary focus:ring-primary h-4 w-4" />
-            <span className="text-sm font-bold text-muted-foreground">Taxa de Serviço (10%)</span>
-          </label>
-          <span className="text-sm font-black text-foreground">{formatCurrency(taxaServico)}</span>
-        </div>
 
         <div className="flex items-center justify-between rounded-lg bg-background border border-border p-3">
           <span className="text-sm font-black uppercase text-muted-foreground">Total</span>
