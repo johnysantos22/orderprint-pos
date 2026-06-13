@@ -282,13 +282,6 @@ function CaixaPage() {
         ? `${observacoesParaImpressao}\n\n${agradecimento}`
         : agradecimento;
 
-      // Imprime na tela do navegador caso não use a tela preta
-      setPedidoParaImprimir(pedido);
-      setTimeout(() => {
-        window.print();
-        setPedidoParaImprimir(null);
-      }, 500);
-
       try {
         setStatusImpressao(`Enviando pedido para o Motor Local...`);
 
@@ -305,6 +298,7 @@ function CaixaPage() {
             nome: removerAcentos(item.nome),
             tamanho: item.tamanho ? removerAcentos(item.tamanho) : item.tamanho
           })),
+          taxaEntrega: pedido.taxaEntrega || 0,
           taxaServico: 0,
           observacoes: removerAcentos(observacoesParaImpressao), // <-- Envia a Observação + O Agradecimento!
           rodape: removerAcentos(agradecimento), // <-- Mandamos um extra caso a sua tela preta tenha isso programado
