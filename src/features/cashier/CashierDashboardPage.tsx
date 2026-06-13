@@ -219,7 +219,7 @@ function CaixaPage() {
   const atendimentoAtual = atendimentosAbertos.find((a) => a.id === atendimentoSelecionado);
 
   // =======================================================
-  // COMUNICAÇÃO 100% COM A TELA PRETA (Sem window.print)
+  // MOTOR DE IMPRESSÃO 100% TELA PRETA (Zero Navegador)
   // =======================================================
   const imprimirCupom = useCallback(
     async (pedido: Pedido, opcoes: ImprimirCupomOptions = {}) => {
@@ -249,6 +249,19 @@ function CaixaPage() {
         }
       }
 
+      let dadosContato = "";
+      const telefoneReal = pedido.telefone || pedido.cliente?.telefone || "";
+
+      if (telefoneReal.trim() !== "") {
+        dadosContato += `${telefoneReal}\n`;
+      }
+      if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
+        dadosContato += `Endereco: ${pedido.cliente.endereco}\n`;
+      }
+      if (pedido.pagamento) {
+        dadosContato += `Pagamento: ${pedido.pagamento.toUpperCase()}`;
+      }
+
       let observacoesParaImpressao = pedido.observacoes || "";
       if (isAcrescimo && !conferencia && !pedido.id.startsWith("CONF-")) {
         const aviso = `*** ATENCAO: ACRESCIMO DA MESA ${pedido.mesa} ***`;
@@ -261,15 +274,13 @@ function CaixaPage() {
       try {
         setStatusImpressao(`Enviando para a Tela Preta...`);
 
-        // Envia as strings SEPARADAS para a tela preta organizar
+        // Dispara o JSON direto pro NodeJS
         await axios.post(`${impressoraUrl}/imprimir`, {
           id: removerAcentos(pedido.id),
           data: pedido.data,
           origem: removerAcentos(origemDoPedido),
           cliente: removerAcentos(nomeParaImpressao),
-          telefone: pedido.telefone ? removerAcentos(pedido.telefone) : removerAcentos(pedido.cliente?.telefone || ""),
-          endereco: pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco ? removerAcentos(pedido.cliente.endereco) : "",
-          pagamento: pedido.pagamento ? removerAcentos(pedido.pagamento.toUpperCase()) : "A DEFINIR",
+          telefone: removerAcentos(dadosContato.trim()),
           total: pedido.total,
           taxaEntrega: pedido.taxaEntrega || 0,
           itens: pedido.itens.map(item => ({
@@ -280,7 +291,7 @@ function CaixaPage() {
           observacoes: removerAcentos(observacoesParaImpressao)
         });
 
-        setStatusImpressao(`Cupom impresso!`);
+        setStatusImpressao(`Cupom impresso na tela preta!`);
       } catch (error) {
         console.warn("Falha na ponte local:", error);
         setStatusImpressao("Erro na comunicação com a impressora.");
@@ -298,7 +309,6 @@ function CaixaPage() {
   const imprimirPedido = useCallback(
     async (p: Pedido) => {
       try {
-        // Manda o sinal direto para a Tela Preta
         await imprimirCupom(p);
 
         if (!p.impresso) {
@@ -307,6 +317,7 @@ function CaixaPage() {
             impressoEm: new Date().toISOString(),
           });
 
+          // Notificação de WhatsApp (Sem travar o sistema se der erro)
           let telefoneCliente = p.telefone || p.cliente?.telefone;
           if (telefoneCliente && !p.id.startsWith("CONF-")) {
             telefoneCliente = telefoneCliente.replace(/\D/g, '');
@@ -476,7 +487,6 @@ function CaixaPage() {
       const ord = p.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
       setPedidos(ord);
       pedidosRef.current = ord;
-      // Dispara a impressão automática!
       processarPedidos();
     });
     const unsubLoja = onSnapshot(doc(db, "configuracoes", "loja"), (snap) => {
@@ -649,7 +659,7 @@ function CaixaPage() {
         await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
         setAlerta({ titulo: "Sucesso", mensagem: "Cliente Notificado!", tipo: "sucesso" });
       } catch (erroPrimeira) {
-        console.warn("Falha na sincronização. Aguardando...");
+        console.warn("Falha na sincronização. Aguardando 2s...");
         await new Promise(resolve => setTimeout(resolve, 2000));
         try {
           await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
@@ -734,7 +744,7 @@ function CaixaPage() {
     } catch (error: any) {
       setAlerta({
         titulo: "Falha de Conexão",
-        mensagem: "Não foi possível gerar o QR Code.",
+        mensagem: "Não foi possível gerar o QR Code. Verifique a tela preta.",
         tipo: "erro"
       });
     } finally {
@@ -1338,7 +1348,7 @@ function CaixaPage() {
                                   type="text"
                                   value={horarioFuncionamento}
                                   onChange={(e) => setHorarioFuncionamento(e.target.value)}
-                                  placeholder="Ex: 🕒 Quarta a Domingo | das 18h às 22h."
+                                  placeholder="Horário"
                                   className="h-12 w-full rounded-xl border border-border bg-background pl-9 pr-4 font-bold text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
                                 />
                               </div>
@@ -1441,12 +1451,12 @@ function CaixaPage() {
                             </div>
                           ) : qrCodeBase64 ? (
                             <div className="bg-white p-3 sm:p-4 rounded-xl shadow-xl ring-1 ring-border relative z-10 w-full flex justify-center">
-                              <img src={qrCodeBase64} alt="QR Code WhatsApp" className="w-full max-w-[200px] md:max-w-[240px] h-auto object-contain" />
+                              <img src={qrCodeBase64} alt="QR Code" className="w-full max-w-[200px] md:max-w-[240px] h-auto object-contain" />
                             </div>
                           ) : (
                             <div className="flex flex-col items-center justify-center text-center opacity-40 grayscale">
                               <QrCode size={64} className="mb-4 text-muted-foreground" />
-                              <p className="text-xs font-black uppercase text-muted-foreground">Aguardando geração<br />do código</p>
+                              <p className="text-xs font-black uppercase text-muted-foreground">Aguardando geração</p>
                             </div>
                           )}
                         </div>
@@ -1496,8 +1506,7 @@ function CaixaPage() {
 
                 <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3 rounded-xl border border-border bg-card p-3 md:p-4 shadow-sm mb-4">
                   <div className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm font-black uppercase text-foreground">
-                    <Filter size={14} className="text-primary md:w-[16px] md:h-[16px]" /> Filtro de
-                    Período:
+                    <Filter size={14} className="text-primary" /> Filtros:
                   </div>
                   <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full xl:w-auto">
                     <div className="flex w-full xl:w-auto rounded-lg border border-border bg-background p-1 shadow-inner overflow-x-auto">
@@ -1515,7 +1524,7 @@ function CaixaPage() {
                       onClick={() => setMostrarCancelados(!mostrarCancelados)}
                       className={`flex w-full xl:w-auto justify-center items-center gap-1.5 px-3 py-1.5 md:px-4 md:py-2 text-[10px] font-black uppercase rounded-lg border shadow-sm transition-all ${mostrarCancelados ? "border-red-500 bg-red-600 text-white" : "bg-card text-muted-foreground hover:bg-muted"}`}
                     >
-                      <Ban size={12} className="md:w-3.5 md:h-3.5" />
+                      <Ban size={12} />
                       {mostrarCancelados ? "Ocultar Cancelados" : "Ver Cancelados"}
                     </button>
                   </div>
@@ -1526,45 +1535,24 @@ function CaixaPage() {
                     <div className="rounded-xl border border-border bg-card p-3 sm:p-4 shadow-sm">
                       <div className="flex justify-between items-start">
                         <div>
-                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5 sm:mb-1">
-                            Faturamento
-                          </p>
-                          <strong className="text-lg sm:text-xl font-black text-green-500">
-                            {formatCurrency(statsPeriodo.faturamento)}
-                          </strong>
-                        </div>
-                        <div className="bg-green-500/10 p-2 rounded-lg">
-                          <DollarSign className="text-green-500 w-4 h-4 sm:w-5 sm:h-5" />
+                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5">Faturamento</p>
+                          <strong className="text-lg sm:text-xl font-black text-green-500">{formatCurrency(statsPeriodo.faturamento)}</strong>
                         </div>
                       </div>
                     </div>
                     <div className="rounded-xl border border-border bg-card p-3 sm:p-4 shadow-sm">
                       <div className="flex justify-between items-start">
                         <div>
-                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5 sm:mb-1">
-                            Pedidos ({tituloDashboard})
-                          </p>
-                          <strong className="text-lg sm:text-xl font-black text-blue-500">
-                            {statsPeriodo.qtdPedidos}
-                          </strong>
-                        </div>
-                        <div className="bg-blue-500/10 p-2 rounded-lg">
-                          <ShoppingBag className="text-blue-500 w-4 h-4 sm:w-5 sm:h-5" />
+                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5">Pedidos</p>
+                          <strong className="text-lg sm:text-xl font-black text-blue-500">{statsPeriodo.qtdPedidos}</strong>
                         </div>
                       </div>
                     </div>
                     <div className="rounded-xl border border-border bg-card p-3 sm:p-4 shadow-sm">
                       <div className="flex justify-between items-start">
                         <div>
-                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5 sm:mb-1">
-                            Ticket Médio
-                          </p>
-                          <strong className="text-lg sm:text-xl font-black text-orange-500">
-                            {formatCurrency(statsPeriodo.ticketMedio)}
-                          </strong>
-                        </div>
-                        <div className="bg-orange-500/10 p-2 rounded-lg">
-                          <TrendingUp className="text-orange-500 w-4 h-4 sm:w-5 sm:h-5" />
+                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5">Ticket Médio</p>
+                          <strong className="text-lg sm:text-xl font-black text-orange-500">{formatCurrency(statsPeriodo.ticketMedio)}</strong>
                         </div>
                       </div>
                     </div>
@@ -1572,15 +1560,10 @@ function CaixaPage() {
                 )}
 
                 <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-                  <div className="border-b border-border bg-muted/30 px-3 sm:px-4 py-2.5 sm:py-3">
-                    <h2 className="text-sm sm:text-base font-black text-foreground">
-                      Histórico de Pedidos
-                    </h2>
-                  </div>
                   <div className="divide-y divide-border bg-card">
                     {pedidosFiltrados.length === 0 && (
                       <div className="p-6 sm:p-8 text-center text-xs sm:text-sm font-bold text-muted-foreground">
-                        Nenhum pedido encontrado no período.
+                        Nenhum registro encontrado.
                       </div>
                     )}
                     {pedidosFiltrados.map((p) => (
@@ -1609,19 +1592,19 @@ function CaixaPage() {
                             <div className="flex gap-1.5">
                               <button
                                 onClick={() => imprimirPedido(p)}
-                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg bg-white border shadow-sm hover:bg-zinc-50 transition-colors"
+                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg bg-white border shadow-sm hover:bg-zinc-50"
                               >
                                 <Printer size={14} />
                               </button>
                               <button
                                 onClick={() => abrirModalEdicao(p)}
-                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
                               >
                                 <Edit3 size={14} />
                               </button>
                               <button
                                 onClick={() => setPedidoParaCancelar(p.id)}
-                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
                               >
                                 <Trash2 size={14} />
                               </button>
