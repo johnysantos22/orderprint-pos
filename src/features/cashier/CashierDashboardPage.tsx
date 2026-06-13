@@ -107,6 +107,7 @@ interface ImprimirCupomOptions {
 
 function CaixaPage() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [pedidoParaImprimir, setPedidoParaImprimir] = useState<Pedido | null>(null);
   const [statusImpressao, setStatusImpressao] = useState("Aguardando pedidos.");
   const [pedidoComFalha, setPedidoComFalha] = useState<Pedido | null>(null);
   const [somAtivo, setSomAtivo] = useState(false);
@@ -218,9 +219,6 @@ function CaixaPage() {
 
   const atendimentoAtual = atendimentosAbertos.find((a) => a.id === atendimentoSelecionado);
 
-  // =========================================================================
-  // MOTOR DE IMPRESSÃO - 100% TELA PRETA (Sem window.print, sem HTML)
-  // =========================================================================
   const imprimirCupom = useCallback(
     async (pedido: Pedido, opcoes: ImprimirCupomOptions = {}) => {
       const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
@@ -235,12 +233,10 @@ function CaixaPage() {
       const isAcrescimo = origemDoPedido.includes("ACRÉSCIMO") || origemDoPedido.includes("ACRESCIMO");
       const isCorrecao = origemDoPedido.includes("CORREÇÃO") || origemDoPedido.includes("CORRECAO") || origemDoPedido.includes("RETIRADA");
 
-      // 1. NOME OU MESA
+      // --- 1. DEFINE A MESA OU O NOME ---
       let nomeParaImpressao = opcoes.pessoa || pedido.cliente?.nome || pedido.garcom || "Balcao";
 
-      if (pedido.id.startsWith("CONF-")) {
-        nomeParaImpressao = `CONFERENCIA - ${pedido.origem}`;
-      } else if (pedido.mesa && !conferencia) {
+      if (pedido.mesa && !conferencia) {
         if (isAcrescimo) {
           nomeParaImpressao = `[ + ACRESCIMO ] MESA ${pedido.mesa} - ${nomeParaImpressao}`;
         } else if (isCorrecao) {
@@ -250,138 +246,85 @@ function CaixaPage() {
         }
       }
 
-      // 2. DADOS DE CONTATO
-      let dadosContato = "";
-      const telefoneReal = pedido.telefone || pedido.cliente?.telefone || "";
+      // --- 2. DEFINE O TELEFONE E GRUDA O ENDEREÇO E PAGAMENTO ---
+      let telefoneParaImpressao = pedido.telefone || pedido.cliente?.telefone || "";
 
-      if (telefoneReal.trim() !== "") {
-        dadosContato += `WhatsApp: ${telefoneReal}\n`;
-      }
       if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
-        dadosContato += `Endereco: ${pedido.cliente.endereco}\n`;
-      }
-      if (pedido.pagamento) {
-        dadosContato += `Pagamento: ${pedido.pagamento.toUpperCase()}`;
+        const enderecoTxt = `Endereco de Entrega: ${pedido.cliente.endereco}`;
+        telefoneParaImpressao = telefoneParaImpressao
+          ? `${telefoneParaImpressao}\n${enderecoTxt}`
+          : `\n${enderecoTxt}`;
       }
 
-      // 3. OBSERVAÇÕES
+      if (pedido.pagamento) {
+        const pagFormatado = `Pagamento: ${pedido.pagamento.toUpperCase()}`;
+        telefoneParaImpressao = telefoneParaImpressao
+          ? `${telefoneParaImpressao}\n${pagFormatado}`
+          : `\n${pagFormatado}`;
+      }
+
+      // --- 3. OBSERVAÇÕES E ALERTAS DE ACRÉSCIMO ---
       let observacoesParaImpressao = pedido.observacoes || "";
-      if (isAcrescimo && !conferencia && !pedido.id.startsWith("CONF-")) {
+
+      if (isAcrescimo && !conferencia) {
         const aviso = `*** ATENCAO: ACRESCIMO DA MESA ${pedido.mesa} ***`;
         observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
-      } else if (isCorrecao && !conferencia && !pedido.id.startsWith("CONF-")) {
+      } else if (isCorrecao && !conferencia) {
         const aviso = `*** ATENCAO: CORRECAO DA MESA ${pedido.mesa} ***`;
         observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
       }
 
-      try {
-        setStatusImpressao(`Enviando pedido para a Tela Preta...`);
+      // CORREÇÃO JOHNY: Não concatenar o agradecimento aqui. A impressora no back-end já faz o rodapé!
+      // Se enviarmos o 'Obrigado', o back-end aciona o filtro e apaga a observação toda.
 
-        // Envia direto pro printer.js na tela preta
+      const rodapeParaImpressao = "*** NAO E FISCAL ***\nObrigado pela preferencia!\nVolte sempre!";
+
+      // Imprime na tela do navegador caso não use a tela preta
+      setPedidoParaImprimir(pedido);
+      setTimeout(() => {
+        window.print();
+        setPedidoParaImprimir(null);
+      }, 500);
+
+      try {
+        setStatusImpressao(`Enviando pedido para o Motor Local...`);
+
+        // --- 4. O AXIOS QUE MANDA PRA TELA PRETA ---
         await axios.post(`${impressoraUrl}/imprimir`, {
           id: removerAcentos(pedido.id),
           data: pedido.data,
           origem: removerAcentos(origemDoPedido),
           cliente: removerAcentos(nomeParaImpressao),
-          telefone: removerAcentos(dadosContato.trim()),
+          telefone: removerAcentos(telefoneParaImpressao),
           total: pedido.total,
-          taxaEntrega: pedido.taxaEntrega || 0,
           itens: pedido.itens.map(item => ({
             ...item,
-            quantidade: item.quantidade,
             nome: removerAcentos(item.nome),
-            tamanho: item.tamanho ? removerAcentos(item.tamanho) : ""
+            tamanho: item.tamanho ? removerAcentos(item.tamanho) : item.tamanho
           })),
-          observacoes: removerAcentos(observacoesParaImpressao)
+          taxaServico: 0,
+          observacoes: removerAcentos(observacoesParaImpressao), // Agora vai limpo pro back-end aceitar
+          rodape: removerAcentos(rodapeParaImpressao),
+          linhasCorte: 0,
+          bottomFeedLines: 0,
+          espacoCorteMm: 0
         });
 
-        setStatusImpressao(`Cupom impresso com sucesso!`);
+        setStatusImpressao(`Cupom processado!`);
       } catch (error) {
         console.warn("Falha na ponte local de impressão:", error);
         setStatusImpressao("Erro na comunicação com a impressora.");
+
         setAlerta({
           titulo: "Impressora Offline 🖨️",
-          mensagem: "A tela preta não respondeu. Verifique se o iniciar.bat está rodando no computador do Caixa.",
+          mensagem:
+            "Não foi possível conectar com a impressora. Verifique se a tela preta do sistema está aberta e se a máquina está ligada.",
           tipo: "erro",
         });
-        throw new Error("Falha na comunicação com a impressora");
       }
     },
     []
   );
-
-  const imprimirPedido = useCallback(
-    async (p: Pedido) => {
-      try {
-        // Dispara pra tela preta (seja chamado manualmente pelo botão ou automático pela fila)
-        await imprimirCupom(p);
-
-        // Se imprimiu com sucesso, salva no Firebase que já foi impresso
-        if (!p.impresso) {
-          await updateDoc(doc(db, "pedidos", p.id), {
-            impresso: true,
-            impressoEm: new Date().toISOString(),
-          });
-
-          // Notificação de WhatsApp invisível (só manda no primeiro print, não nos manuais repetidos)
-          let telefoneCliente = p.telefone || p.cliente?.telefone;
-          if (telefoneCliente && !p.id.startsWith("CONF-")) {
-            telefoneCliente = telefoneCliente.replace(/\D/g, '');
-            if (telefoneCliente.length >= 10) {
-              if (!telefoneCliente.startsWith('55')) telefoneCliente = '55' + telefoneCliente;
-
-              const nomeCliente = p.cliente?.nome || "Cliente";
-              const mensagem = `Olá, ${nomeCliente}!\n\nSeu pedido *#${p.id.slice(0, 6).toUpperCase()}* acabou de ser *recebido e impresso* na cozinha da *Pizzaria 2 Irmãos*! 🍕👨‍🍳\n\nLogo começaremos o preparo. Agradecemos a preferência!`;
-
-              const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL;
-              const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
-              const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
-
-              const payload = {
-                number: telefoneCliente,
-                text: mensagem,
-                options: { delay: 1200, presence: "composing" }
-              };
-
-              const configAxios = { headers: { "apikey": apiKey, "Content-Type": "application/json" } };
-
-              axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios).catch(() => { });
-            }
-          }
-        }
-        setPedidoComFalha(null);
-      } catch (error) {
-        setPedidoComFalha(p);
-        throw error; // Propaga pra fila automática não se matar tentando imprimir num sistema offline
-      }
-    },
-    [imprimirCupom],
-  );
-
-  // É ESSA FUNÇÃO AQUI QUE PUXA OS PEDIDOS DO CLIENTE E DO GARÇOM E IMPRIME!
-  const processarPedidos = useCallback(async () => {
-    if (imprimindoRef.current) return;
-    imprimindoRef.current = true;
-    try {
-      let temPendente = true;
-      while (temPendente) {
-        const pendente = [...pedidosRef.current]
-          .reverse()
-          .find((p) => !p.impresso && p.status !== "cancelado");
-        if (pendente) {
-          try {
-            await imprimirPedido(pendente); // Manda o pedido do Garçom/Cliente direto pra tela preta!
-          } catch (e) {
-            temPendente = false;
-          }
-        } else {
-          temPendente = false;
-        }
-      }
-    } finally {
-      imprimindoRef.current = false;
-    }
-  }, [imprimirPedido]);
 
   const finalizarAtendimento = async (atend: (typeof atendimentosAbertos)[0]) => {
     try {
@@ -409,15 +352,14 @@ function CaixaPage() {
       id: `CONF-${atend.titulo.replace(/\s+/g, "-")}`,
       data: new Date().toISOString(),
       origem: atend.titulo,
-      pagamento: "A DEFINIR NO CAIXA",
+      pagamento: "A DEFINIR",
       itens: itensConsolidados,
       subtotal: atend.total,
       total: atend.total,
       impresso: true,
-      observacoes: "*** CONFERENCIA DE MESA ***",
-      cliente: { nome: "Conferencia - " + atend.titulo }
+      observacoes: "*** CONFERÊNCIA DE MESA ***",
     };
-    await imprimirCupom(pedidoConferencia, { tipoCupom: "conferencia" });
+    await imprimirCupom(pedidoConferencia);
   };
 
   const pendentes = pedidos.filter(
@@ -488,6 +430,83 @@ function CaixaPage() {
           ? "deste Mês"
           : "Total";
 
+  const imprimirPedido = useCallback(
+    async (p: Pedido, m = false) => {
+      try {
+        await imprimirCupom(p);
+
+        if (!p.impresso) {
+          await updateDoc(doc(db, "pedidos", p.id), {
+            impresso: true,
+            impressoEm: new Date().toISOString(),
+          });
+
+          // Envia notificação de recebimento pelo WhatsApp assim que impresso pela primeira vez
+          let telefoneCliente = p.telefone || p.cliente?.telefone;
+          if (telefoneCliente) {
+            telefoneCliente = telefoneCliente.replace(/\D/g, '');
+            if (telefoneCliente.length >= 10) {
+              if (!telefoneCliente.startsWith('55')) telefoneCliente = '55' + telefoneCliente;
+
+              const nomeCliente = p.cliente?.nome || "Cliente";
+              const mensagem = `Olá, ${nomeCliente}!\n\nSeu pedido *#${p.id.slice(0, 6).toUpperCase()}* acabou de ser *recebido e impresso* na cozinha da *Pizzaria 2 Irmãos*! 🍕👨‍🍳\n\nLogo começaremos o preparo. Agradecemos a preferência!`;
+
+              const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL;
+              const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
+              const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
+
+              const payload = {
+                number: telefoneCliente,
+                text: mensagem,
+                options: { delay: 1200, presence: "composing" }
+              };
+
+              const configAxios = {
+                headers: {
+                  "apikey": apiKey,
+                  "Content-Type": "application/json"
+                }
+              };
+
+              try {
+                await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
+              } catch (err) {
+                console.warn("Primeira tentativa de notificação falhou (Sincronização WhatsApp). Tentando novamente em 2s...");
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios)
+                  .catch(errDefinitivo => console.error("Erro definitivo ao notificar recebimento:", errDefinitivo));
+              }
+            }
+          }
+        }
+        setPedidoComFalha(null);
+      } catch {
+        setPedidoComFalha(p);
+      }
+    },
+    [imprimirCupom],
+  );
+
+  const processarPedidos = useCallback(async () => {
+    if (imprimindoRef.current) return;
+    imprimindoRef.current = true;
+    try {
+      let temPendente = true;
+      while (temPendente) {
+        const pendente = [...pedidosRef.current]
+          .reverse()
+          .find((p) => !p.impresso && p.status !== "cancelado");
+        if (pendente) {
+          await imprimirPedido(pendente);
+        } else {
+          temPendente = false;
+        }
+      }
+    } finally {
+      imprimindoRef.current = false;
+    }
+  }, [imprimirPedido]);
+
   useEffect(() => {
     const unsubPedidos = onSnapshot(query(collection(db, "pedidos")), (snap) => {
       const p: Pedido[] = [];
@@ -495,7 +514,6 @@ function CaixaPage() {
       const ord = p.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
       setPedidos(ord);
       pedidosRef.current = ord;
-      // Dispara a impressão automática sempre que o Firebase mandar um pedido novo
       processarPedidos();
     });
     const unsubLoja = onSnapshot(doc(db, "configuracoes", "loja"), (snap) => {
@@ -666,14 +684,16 @@ function CaixaPage() {
 
       try {
         await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
+        console.log("Sucesso no envio de Status (Tentativa 1)");
         setAlerta({ titulo: "Sucesso", mensagem: "Cliente Notificado!", tipo: "sucesso" });
       } catch (erroPrimeira) {
-        console.warn("Falha na sincronização. Aguardando 2s...");
+        console.warn("Falha na sincronização. Aguardando 2s para tentar novamente...");
         await new Promise(resolve => setTimeout(resolve, 2000));
         try {
           await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
           setAlerta({ titulo: "Sucesso", mensagem: "Cliente Notificado!", tipo: "sucesso" });
         } catch (erroSegunda: any) {
+          console.error("ERRO DETALHADO DA API (2a tentativa):", erroSegunda.response?.data || erroSegunda.message);
           setAlerta({
             titulo: "Erro WhatsApp",
             mensagem: erroSegunda.response?.data?.message || "Não foi possível notificar o cliente.",
@@ -717,7 +737,7 @@ function CaixaPage() {
     if (!whatsappUrl || !instancia || !apiKey) {
       setAlerta({
         titulo: "Erro de Configuração",
-        mensagem: "As variáveis do WhatsApp não estão configuradas no arquivo .env.",
+        mensagem: "As variáveis do WhatsApp (VITE_WHATSAPP...) não estão configuradas no arquivo .env.",
         tipo: "erro"
       });
       setCarregandoQr(false);
@@ -751,6 +771,7 @@ function CaixaPage() {
       }
 
     } catch (error: any) {
+      console.error("Erro detalhado do WhatsApp:", error.response?.data || error.message);
       setAlerta({
         titulo: "Falha de Conexão",
         mensagem: "Não foi possível gerar o QR Code. Verifique se o Motor do WhatsApp está rodando e se a instância existe.",
@@ -814,7 +835,25 @@ function CaixaPage() {
 
   return (
     <>
-      <div className="flex h-screen w-full bg-background overflow-hidden">
+      <style>{`
+        #cupom-impressao { display: none; }
+        @media print {
+          @page { size: 58mm auto; margin: 0; }
+          html, body { background: #fff !important; color: #000 !important; margin: 0; padding: 0; }
+          .caixa-layout { display: none !important; }
+          #cupom-impressao { display: block !important; width: 52mm; margin: 0 auto; color: #000; font-family: 'Courier New', Courier, monospace; font-size: 10pt; padding: 2mm; padding-bottom: 10mm; }
+          #cupom-impressao img { width: 45px; height: 45px; margin: 0 auto 5px; display: block; filter: grayscale(100%) contrast(1.2); }
+          #cupom-impressao .linha { display: flex; justify-content: space-between; gap: 5px; align-items: flex-start; margin-bottom: 3px; }
+          #cupom-impressao .linha > span:first-child { flex: 1; word-break: break-word; line-height: 1.1; }
+          #cupom-impressao .linha > span:last-child { white-space: nowrap; flex-shrink: 0; font-weight: bold; text-align: right; }
+          #cupom-impressao .centro { text-align: center; line-height: 1.2; }
+          #cupom-impressao .forte { font-weight: 800; }
+          #cupom-impressao .divisor-igual { border-top: 3px double #000; margin: 6px 0; }
+          #cupom-impressao .divisor-traco { border-top: 1px dashed #000; margin: 6px 0; }
+        }
+      `}</style>
+
+      <div className="flex h-screen w-full bg-background overflow-hidden caixa-layout">
         <aside
           className={`w-full md:w-80 flex-shrink-0 border-r border-border bg-card flex-col h-full overflow-hidden shadow-[var(--shadow-card)] z-20 ${!atendimentoSelecionado && telaAtiva === "mesas" ? "flex" : "hidden md:flex"}`}
         >
@@ -975,9 +1014,9 @@ function CaixaPage() {
                         </div>
                         <div className="flex gap-1.5 md:gap-2">
                           <button
-                            onClick={() => imprimirPedido(p)}
+                            onClick={() => imprimirPedido(p, true)}
                             className="h-8 w-8 md:h-9 md:w-9 flex items-center justify-center rounded-lg bg-white border shadow-sm hover:bg-zinc-50"
-                            title="Reimprimir Pedido"
+                            title="Imprimir"
                           >
                             <Printer size={16} />
                           </button>
@@ -1127,7 +1166,7 @@ function CaixaPage() {
                     onClick={() => setAbaConfig("estoque")}
                     className={`flex whitespace-nowrap items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 text-[10px] sm:text-xs font-black uppercase rounded-lg transition-all shadow-sm ${abaConfig === "estoque" ? "bg-primary text-white" : "bg-card text-muted-foreground hover:bg-muted border border-border"}`}
                   >
-                    <Package size={16} />
+                    <Store size={16} />
                     Estoque
                   </button>
                   <button
@@ -1159,6 +1198,7 @@ function CaixaPage() {
                 {abaConfig === "estoque" && (
                   <div className="bg-card border border-border rounded-xl shadow-sm mt-4 mx-auto max-w-6xl overflow-hidden">
                     <div className="flex flex-col md:flex-row">
+                      {/* Lado Esquerdo - Categorias e Info */}
                       <div className="w-full md:w-64 lg:w-72 bg-muted/30 border-b md:border-b-0 md:border-r border-border p-5 sm:p-6 flex flex-col gap-6">
                         <div>
                           <div className="flex items-center gap-3 mb-2">
@@ -1168,7 +1208,7 @@ function CaixaPage() {
                             <h3 className="text-xl font-black text-foreground">Estoque</h3>
                           </div>
                           <p className="text-xs font-semibold text-muted-foreground">
-                            Desative itens esgotados em tempo real.
+                            Desative itens que acabaram para ocultá-los do catálogo digital e do painel do garçom em tempo real.
                           </p>
                         </div>
 
@@ -1189,6 +1229,7 @@ function CaixaPage() {
                         </div>
                       </div>
 
+                      {/* Lado Direito - Grid de Itens */}
                       <div className="flex-1 p-5 sm:p-6 bg-background flex flex-col">
                         <div className="flex items-center justify-between mb-4">
                           <h4 className="text-base sm:text-lg font-black uppercase text-foreground capitalize flex items-center gap-2">
@@ -1219,7 +1260,7 @@ function CaixaPage() {
                                     {i.name}
                                   </h5>
                                   {descricaoItem && (
-                                    <p className="text-[10px] font-semibold text-muted-foreground mt-1 line-clamp-2 text-ellipsis overflow-hidden">
+                                    <p className="text-[10px] font-semibold text-muted-foreground mt-1 line-clamp-2">
                                       {descricaoItem}
                                     </p>
                                   )}
@@ -1246,6 +1287,7 @@ function CaixaPage() {
                 {abaConfig === "senhas" && (
                   <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8 mt-4 mx-auto max-w-4xl">
                     <div className="flex flex-col md:flex-row gap-8 items-start">
+                      {/* Lado Esquerdo: Textos e Instruções */}
                       <div className="flex-1 space-y-6 w-full md:max-w-sm">
                         <div>
                           <div className="flex items-center gap-3 mb-2">
@@ -1267,7 +1309,9 @@ function CaixaPage() {
                         </div>
                       </div>
 
+                      {/* Lado Direito: Formulários */}
                       <div className="flex-1 w-full space-y-4">
+                        {/* Card Caixa */}
                         <div className="bg-muted/30 border border-border rounded-xl p-5 relative overflow-hidden group hover:border-primary/40 transition-colors">
                           <div className="flex items-center gap-3 mb-4">
                             <div className="bg-background border border-border p-2 rounded-lg shadow-sm">
@@ -1299,6 +1343,7 @@ function CaixaPage() {
                           </div>
                         </div>
 
+                        {/* Card Garçom */}
                         <div className="bg-muted/30 border border-border rounded-xl p-5 relative overflow-hidden group hover:border-primary/40 transition-colors">
                           <div className="flex items-center gap-3 mb-4">
                             <div className="bg-background border border-border p-2 rounded-lg shadow-sm">
@@ -1393,6 +1438,7 @@ function CaixaPage() {
                       </div>
                     </div>
 
+                    {/* MODO PROFISSIONAL - EDIÇÃO DE CARDÁPIO */}
                     <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8">
                       <div className="flex flex-col md:flex-row gap-8 items-start">
                         <div className="flex-1 space-y-6 w-full md:max-w-sm">
@@ -1455,23 +1501,23 @@ function CaixaPage() {
                 )}
 
                 {abaConfig === "whatsapp" && (
-                  <div className="bg-card border border-border rounded-xl shadow-sm p-4 sm:p-6 md:p-8 mt-4 mx-auto max-w-4xl">
-                    <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-center md:items-start">
+                  <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8 mt-4 mx-auto max-w-4xl">
+                    <div className="flex flex-col md:flex-row gap-8 items-center md:items-start">
 
-                      <div className="flex-1 space-y-4 md:space-y-6 w-full">
+                      <div className="flex-1 space-y-6 w-full">
                         <div>
                           <div className="flex items-center gap-3 mb-2">
                             <div className="bg-green-100 p-2.5 rounded-xl text-green-600">
                               <Smartphone size={24} />
                             </div>
-                            <h3 className="text-xl sm:text-2xl font-black text-foreground">Integração WhatsApp</h3>
+                            <h3 className="text-xl sm:text-2xl font-black text-foreground break-words">Integração WhatsApp</h3>
                           </div>
                           <p className="text-sm font-semibold text-muted-foreground">
                             Conecte o número oficial da pizzaria para envio automático de atualizações de status dos pedidos aos clientes.
                           </p>
                         </div>
 
-                        <div className="bg-muted/30 border border-border rounded-xl p-5 space-y-4 hidden md:block">
+                        <div className="bg-muted/30 border border-border rounded-xl p-5 space-y-4">
                           <h4 className="font-black text-sm uppercase text-foreground">Como conectar:</h4>
                           <ol className="text-xs sm:text-sm font-semibold text-muted-foreground space-y-3">
                             <li className="flex gap-2.5 items-start">
@@ -1508,16 +1554,17 @@ function CaixaPage() {
                         </button>
                       </div>
 
+                      {/* Lado Direito: QR Code */}
                       <div className="w-full md:w-[320px] flex flex-col items-center">
-                        <div className="w-full bg-muted/20 border-2 border-dashed border-border rounded-2xl p-4 sm:p-6 min-h-[280px] flex flex-col items-center justify-center relative overflow-hidden">
+                        <div className="w-full bg-muted/20 border-2 border-dashed border-border rounded-2xl p-6 min-h-[320px] flex flex-col items-center justify-center relative overflow-hidden">
                           {carregandoQr ? (
                             <div className="flex flex-col items-center justify-center text-center space-y-4">
                               <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
                               <p className="text-xs font-black uppercase text-muted-foreground animate-pulse">Solicitando acesso...</p>
                             </div>
                           ) : qrCodeBase64 ? (
-                            <div className="bg-white p-3 sm:p-4 rounded-xl shadow-xl ring-1 ring-border relative z-10 w-full flex justify-center">
-                              <img src={qrCodeBase64} alt="QR Code WhatsApp" className="w-full max-w-[200px] md:max-w-[240px] h-auto object-contain" />
+                            <div className="bg-white p-4 rounded-xl shadow-xl ring-1 ring-border relative z-10 w-full flex justify-center">
+                              <img src={qrCodeBase64} alt="QR Code WhatsApp" className="w-full max-w-[240px] h-auto object-contain" />
                             </div>
                           ) : (
                             <div className="flex flex-col items-center justify-center text-center opacity-40 grayscale">
@@ -1568,6 +1615,7 @@ function CaixaPage() {
                         {horaAtual.toLocaleTimeString("pt-BR", {
                           hour: "2-digit",
                           minute: "2-digit",
+                          second: "2-digit",
                         })}
                       </div>
                     </div>
@@ -1707,7 +1755,7 @@ function CaixaPage() {
                               </span>
                             )}
                           </div>
-                          <h3 className="font-black text-base sm:text-lg text-foreground">
+                          <h3 className="font-black text-base sm:text-lg text-foreground break-words">
                             {p.cliente?.nome ?? p.garcom ?? "Mesa"}
                           </h3>
                           <p className="text-xs font-bold text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -1731,9 +1779,8 @@ function CaixaPage() {
                           {p.status !== "cancelado" && (
                             <div className="flex gap-1.5">
                               <button
-                                onClick={() => imprimirPedido(p)}
+                                onClick={() => imprimirPedido(p, true)}
                                 className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg bg-white border shadow-sm hover:bg-zinc-50 transition-colors"
-                                title="Reimprimir Pedido"
                               >
                                 <Printer size={14} />
                               </button>
@@ -1928,6 +1975,48 @@ function CaixaPage() {
           </div>
         </div>
       )}
+
+      <div id="cupom-impressao" aria-hidden={!pedidoParaImprimir}>
+        {pedidoParaImprimir && (
+          <>
+            <div className="centro">
+              <img src={logo} alt="Logo" />
+            </div>
+            <div className="centro forte" style={{ fontSize: "13pt", marginBottom: "2px" }}>
+              PIZZARIA 2 IRMÃOS
+            </div>
+            <div className="centro" style={{ fontSize: "9pt" }}>Tel: (84) 99813-5262</div>
+            <div className="divisor-igual"></div>
+            <div className="linha">
+              <span>Pedido:</span>
+              <span className="forte">#{pedidoParaImprimir.id.slice(0, 8).toUpperCase()}</span>
+            </div>
+            <div className="linha">
+              <span>Data:</span>
+              <span>{formatDateTime(pedidoParaImprimir.data)}</span>
+            </div>
+            <div className="linha">
+              <span>Origem:</span>
+              <span className="forte">{pedidoParaImprimir.origem}</span>
+            </div>
+            <div className="divisor-traco"></div>
+            <div className="forte" style={{ marginBottom: "4px" }}>ITENS</div>
+            {pedidoParaImprimir.itens.map((i) => (
+              <div key={i.key} className="linha">
+                <span>
+                  {i.quantidade}x {i.nome} {i.tamanho && `(${i.tamanho})`}
+                </span>
+                <span>{formatCurrency(i.precoUnitario * i.quantidade)}</span>
+              </div>
+            ))}
+            <div className="divisor-traco"></div>
+            <div className="linha forte" style={{ fontSize: "13pt", marginTop: "4px" }}>
+              <span>TOTAL:</span>
+              <span>{formatCurrency(pedidoParaImprimir.total)}</span>
+            </div>
+          </>
+        )}
+      </div>
     </>
   );
 }
