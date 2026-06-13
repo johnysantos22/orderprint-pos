@@ -156,7 +156,6 @@ export function CustomerOrderPage() {
   const [modalSucessoAberto, setModalSucessoAberto] = useState(false);
   const [modalCarrinhoAberto, setModalCarrinhoAberto] = useState(false);
 
-  // ESTADO DA LOJA E ESTOQUE
   const [lojaAberta, setLojaAberta] = useState(true);
   const [horarioFuncionamento, setHorarioFuncionamento] = useState(
     "🕒Quarta a Domingo | das 18h às 22h.",
@@ -164,7 +163,6 @@ export function CustomerOrderPage() {
   const [esgotados, setEsgotados] = useState<number[]>([]);
   const [menuOverrides, setMenuOverrides] = useState<Record<string, any>>({});
 
-  // ESTADO DE ALERTA GLOBAL
   const [alerta, setAlerta] = useState<{
     titulo: string;
     mensagem: string;
@@ -217,7 +215,6 @@ export function CustomerOrderPage() {
     tipoEntrega,
   ]);
 
-  // ESPIÃO DA LOJA ABERTA/FECHADA E CARDÁPIO
   useEffect(() => {
     const unsubscribeLoja = onSnapshot(doc(db, "configuracoes", "loja"), (docSnap) => {
       if (docSnap.exists()) {
@@ -332,7 +329,6 @@ export function CustomerOrderPage() {
     window.open(whatsappLink, "_blank", "noopener,noreferrer");
   };
 
-  // PROTEÇÃO CONTRA CLIQUES SE ESTIVER FECHADO OU ESGOTADO
   const adicionarItem = (item: Omit<ItemCarrinho, "quantidade">) => {
     if (!lojaAberta) {
       setAlerta({
@@ -424,7 +420,7 @@ export function CustomerOrderPage() {
   };
 
   const conteudoCarrinho = (isModal: boolean) => (
-    <section className={`flex flex-col border-primary bg-card ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2 overflow-hidden" : "rounded-lg border-2 shadow-[var(--shadow-warm)]"}`}>
+    <section className={`flex flex-col border-primary bg-card overflow-hidden ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2" : "rounded-lg border-2 shadow-[var(--shadow-warm)]"}`}>
       <div className={`flex items-center justify-between gap-3 bg-primary px-4 py-3 text-primary-foreground ${isModal ? "shrink-0" : "border-b border-border"}`}>
         <h2 className="flex items-center gap-2 text-lg font-black uppercase">
           <ShoppingCart size={20} aria-hidden="true" />
@@ -463,7 +459,7 @@ export function CustomerOrderPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-black text-foreground">
+                      <p className="text-sm font-black text-foreground break-words">
                         {item.nome}
                         {item.tamanho && (
                           <span className="ml-2 text-primary">({item.tamanho})</span>
@@ -476,7 +472,7 @@ export function CustomerOrderPage() {
                     <button
                       type="button"
                       onClick={() => removerItem(item.key)}
-                      className="rounded-md p-1 text-destructive transition hover:bg-destructive/10"
+                      className="rounded-md p-1 text-destructive shrink-0 transition hover:bg-destructive/10"
                       aria-label={`Remover ${item.nome}`}
                     >
                       <Trash2 size={16} aria-hidden="true" />
@@ -544,7 +540,7 @@ export function CustomerOrderPage() {
               <button
                 type="button"
                 onClick={copiarPix}
-                className="flex h-9 items-center gap-2 rounded-lg bg-green-700 px-3 text-xs font-black uppercase text-white transition hover:bg-green-800"
+                className="flex h-9 items-center shrink-0 gap-2 rounded-lg bg-green-700 px-3 text-xs font-black uppercase text-white transition hover:bg-green-800"
               >
                 <Copy size={15} aria-hidden="true" />
                 Copiar
@@ -701,7 +697,6 @@ export function CustomerOrderPage() {
         </div>
       )}
 
-      {/* MODAL GLOBAL DE ALERTA */}
       {alerta && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity">
           <div className="w-full max-w-sm animate-in fade-in zoom-in-95 rounded-2xl bg-card p-6 text-center shadow-2xl duration-200 border border-border">
@@ -927,19 +922,19 @@ export function CustomerOrderPage() {
                         </div>
                       )}
                       <div className="mb-4 pr-20">
-                        <h3 className={`text-lg font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
+                        <h3 className={`text-lg font-black break-words leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
                           <span className="mr-2 text-primary">
                             {String(pizza.id).padStart(2, "0")}.
                           </span>
                           {pizza.name}
                         </h3>
                         {descricaoPizza && (
-                          <p className="mt-1 text-sm font-medium text-muted-foreground">
+                          <p className="mt-1 text-sm font-medium break-words text-muted-foreground">
                             {descricaoPizza}
                           </p>
                         )}
                         {pizza.highlight && (
-                          <p className="mt-2 text-xs font-black uppercase text-primary">
+                          <p className="mt-2 text-xs font-black uppercase break-words text-primary">
                             {pizza.highlight}
                           </p>
                         )}
@@ -1006,7 +1001,7 @@ export function CustomerOrderPage() {
                           </div>
                         )}
                         <div className="mb-4 pr-20">
-                          <h3 className={`text-base font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
+                          <h3 className={`text-base font-black break-words leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
                             <span className="mr-2 text-primary">{item.id}.</span>
                             {item.name}
                           </h3>
@@ -1085,13 +1080,13 @@ export function CustomerOrderPage() {
                           <Ban size={10} /> Esgotado
                         </div>
                       )}
-                      <span className="pr-16">
-                        <span className={`block text-base font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
+                      <span className="pr-16 break-words">
+                        <span className={`block text-base break-words font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
                           <span className="mr-2 text-primary">{item.id}.</span>
                           {item.name}
                         </span>
                         {descricaoItem && (
-                          <span className="mt-1 block text-xs font-medium text-muted-foreground">
+                          <span className="mt-1 block text-xs break-words font-medium text-muted-foreground">
                             {descricaoItem}
                           </span>
                         )}
@@ -1114,7 +1109,6 @@ export function CustomerOrderPage() {
         </aside>
       </div>
 
-      {/* MODAL DO CARRINHO (Apenas Mobile) */}
       {modalCarrinhoAberto && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity lg:hidden">
           {conteudoCarrinho(true)}
@@ -1144,8 +1138,7 @@ export function CustomerOrderPage() {
         </div>
       )}
 
-      {/* BOTÃO FLUTUANTE DO CARRINHO (Apenas Mobile/Tablets) */}
-      {carrinho.length > 0 && (
+      {(carrinho.length > 0) && (
         <button
           type="button"
           onClick={() => setModalCarrinhoAberto(true)}
