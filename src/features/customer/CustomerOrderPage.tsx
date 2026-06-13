@@ -420,7 +420,7 @@ export function CustomerOrderPage() {
   };
 
   const conteudoCarrinho = (isModal: boolean) => (
-    <section className={`flex flex-col border-primary bg-card ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2 overflow-hidden" : "rounded-lg border-2 shadow-[var(--shadow-warm)]"}`}>
+    <section className={`flex flex-col border-primary bg-card overflow-hidden ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2" : "rounded-lg border-2 shadow-[var(--shadow-warm)]"}`}>
       <div className={`flex items-center justify-between gap-3 bg-primary px-4 py-3 text-primary-foreground ${isModal ? "shrink-0" : "border-b border-border"}`}>
         <h2 className="flex items-center gap-2 text-lg font-black uppercase">
           <ShoppingCart size={20} aria-hidden="true" />
