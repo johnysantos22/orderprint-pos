@@ -40,21 +40,43 @@ export function CashierDashboardPage() {
   const [pinCaixa, setPinCaixa] = useState<string | null>(() => localStorage.getItem("cachedPinCaixa"));
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, "configuracoes", "seguranca"), (docSnap) => {
-      if (docSnap.exists() && docSnap.data().pinCaixa) {
-        const pin = String(docSnap.data().pinCaixa);
-        localStorage.setItem("cachedPinCaixa", pin);
-        setPinCaixa(pin);
-      } else {
-        localStorage.setItem("cachedPinCaixa", "");
-        setPinCaixa("");
+    // Timeout de segurança: se o Firebase travar ou não carregar, libera a tela após 4s
+    const fallbackTimeout = setTimeout(() => {
+      setPinCaixa((prev) => {
+        return prev === null ? (localStorage.getItem("cachedPinCaixa") || "") : prev;
+      });
+    }, 4000);
+
+    const unsubscribe = onSnapshot(
+      doc(db, "configuracoes", "seguranca"),
+      (docSnap) => {
+        if (docSnap.exists() && docSnap.data().pinCaixa) {
+          const pin = String(docSnap.data().pinCaixa);
+          localStorage.setItem("cachedPinCaixa", pin);
+          setPinCaixa(pin);
+        } else {
+          localStorage.setItem("cachedPinCaixa", "");
+          setPinCaixa("");
+        }
+      },
+      (error) => {
+        console.error("Erro de permissão ou conexão com o Firebase:", error);
+        // Se houver erro de permissão ou offline, libera com o cache ou string vazia para não travar a tela
+        setPinCaixa(localStorage.getItem("cachedPinCaixa") || "");
       }
-    });
-    return () => unsubscribe();
+    );
+    return () => {
+      clearTimeout(fallbackTimeout);
+      unsubscribe();
+    };
   }, []);
 
   if (pinCaixa === null) {
-    return <div className="h-screen w-full bg-background" />;
+    return (
+      <div className="flex h-screen w-full bg-background items-center justify-center">
+        <div className="text-muted-foreground font-bold animate-pulse">Carregando painel de controle...</div>
+      </div>
+    );
   }
 
   return (
@@ -263,7 +285,7 @@ function CaixaPage() {
           : `\n${pagFormatado}`;
       }
 
-      // --- 3. OBSERVAÇÕES E O AGRADECIMENTO ---
+      // --- 3. OBSERVAÇÕES E ALERTAS DE ACRÉSCIMO ---
       let observacoesParaImpressao = pedido.observacoes || "";
 
       if (isAcrescimo && !conferencia) {
@@ -274,13 +296,10 @@ function CaixaPage() {
         observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
       }
 
-      // O texto que VOCÊ quer que saia no papel
-      const agradecimento = "*** NAO E FISCAL ***\nObrigado pela preferencia!\nVolte sempre!";
+      // CORREÇÃO JOHNY: Não concatenar o agradecimento aqui. A impressora no back-end já faz o rodapé!
+      // Se enviarmos o 'Obrigado', o back-end aciona o filtro e apaga a observação toda.
 
-      // Aqui o truque: a gente junta a observação com o agradecimento
-      observacoesParaImpressao = observacoesParaImpressao
-        ? `${observacoesParaImpressao}\n\n${agradecimento}`
-        : agradecimento;
+      const rodapeParaImpressao = "*** NAO E FISCAL ***\nObrigado pela preferencia!\nVolte sempre!";
 
       // Imprime na tela do navegador caso não use a tela preta
       setPedidoParaImprimir(pedido);
@@ -298,7 +317,7 @@ function CaixaPage() {
           data: pedido.data,
           origem: removerAcentos(origemDoPedido),
           cliente: removerAcentos(nomeParaImpressao),
-          telefone: removerAcentos(telefoneParaImpressao), // Envia Telefone + Endereço + Pagamento
+          telefone: removerAcentos(telefoneParaImpressao),
           total: pedido.total,
           itens: pedido.itens.map(item => ({
             ...item,
@@ -306,8 +325,8 @@ function CaixaPage() {
             tamanho: item.tamanho ? removerAcentos(item.tamanho) : item.tamanho
           })),
           taxaServico: 0,
-          observacoes: removerAcentos(observacoesParaImpressao), // <-- Envia a Observação + O Agradecimento!
-          rodape: removerAcentos(agradecimento), // <-- Mandamos um extra caso a sua tela preta tenha isso programado
+          observacoes: removerAcentos(observacoesParaImpressao), // Agora vai limpo pro back-end aceitar
+          rodape: removerAcentos(rodapeParaImpressao),
           linhasCorte: 0,
           bottomFeedLines: 0,
           espacoCorteMm: 0
@@ -454,7 +473,6 @@ function CaixaPage() {
               const nomeCliente = p.cliente?.nome || "Cliente";
               const mensagem = `Olá, ${nomeCliente}!\n\nSeu pedido *#${p.id.slice(0, 6).toUpperCase()}* acabou de ser *recebido e impresso* na cozinha da *Pizzaria 2 Irmãos*! 🍕👨‍🍳\n\nLogo começaremos o preparo. Agradecemos a preferência!`;
 
-              // VARIÁVEIS DE AMBIENTE PROTEGIDAS SEM ||
               const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL;
               const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
               const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
@@ -472,7 +490,6 @@ function CaixaPage() {
                 }
               };
 
-              // TENTATIVA DUPLA (AUTO-RETRY) DE SEGURANÇA
               try {
                 await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
               } catch (err) {
@@ -626,8 +643,7 @@ function CaixaPage() {
         .map((i) => (i.key === key ? { ...i, quantidade: i.quantidade + delta } : i))
         .filter((i) => i.quantidade > 0);
       const sub = novos.reduce((acc, i) => acc + i.precoUnitario * i.quantidade, 0);
-      const taxaServ = prev.taxaServico ? sub * 0.1 : 0;
-      return { ...prev, itens: novos, subtotal: sub, taxaServico: taxaServ, total: sub + (prev.taxaEntrega || 0) + taxaServ };
+      return { ...prev, itens: novos, subtotal: sub, total: sub + (prev.taxaEntrega || 0) };
     });
   };
 
@@ -636,8 +652,7 @@ function CaixaPage() {
       if (!prev) return prev;
       const novos = prev.itens.filter((i) => i.key !== key);
       const sub = novos.reduce((acc, i) => acc + i.precoUnitario * i.quantidade, 0);
-      const taxaServ = prev.taxaServico ? sub * 0.1 : 0;
-      return { ...prev, itens: novos, subtotal: sub, taxaServico: taxaServ, total: sub + (prev.taxaEntrega || 0) + taxaServ };
+      return { ...prev, itens: novos, subtotal: sub, total: sub + (prev.taxaEntrega || 0) };
     });
   };
 
@@ -672,7 +687,6 @@ function CaixaPage() {
           break;
       }
 
-      // VARIÁVEIS DE AMBIENTE PROTEGIDAS SEM ||
       const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL;
       const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
       const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
@@ -690,17 +704,15 @@ function CaixaPage() {
         }
       };
 
-      // TENTATIVA DUPLA (AUTO-RETRY) DO WHATSAPP
       try {
         await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
         console.log("Sucesso no envio de Status (Tentativa 1)");
         setAlerta({ titulo: "Sucesso", mensagem: "Cliente Notificado!", tipo: "sucesso" });
       } catch (erroPrimeira) {
-        console.warn("Falha na sincronização (Bad MAC). Aguardando 2s para tentar novamente...");
+        console.warn("Falha na sincronização. Aguardando 2s para tentar novamente...");
         await new Promise(resolve => setTimeout(resolve, 2000));
         try {
           await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
-          console.log("Sucesso no envio de Status (Tentativa 2)");
           setAlerta({ titulo: "Sucesso", mensagem: "Cliente Notificado!", tipo: "sucesso" });
         } catch (erroSegunda: any) {
           console.error("ERRO DETALHADO DA API (2a tentativa):", erroSegunda.response?.data || erroSegunda.message);
@@ -728,7 +740,6 @@ function CaixaPage() {
       await updateDoc(doc(db, "pedidos", draftPedidoEdicao.id), {
         itens: draftPedidoEdicao.itens,
         subtotal: draftPedidoEdicao.subtotal,
-        taxaServico: draftPedidoEdicao.taxaServico || 0,
         total: draftPedidoEdicao.total,
       });
       setDraftPedidoEdicao(null);
@@ -741,11 +752,10 @@ function CaixaPage() {
     setCarregandoQr(true);
     setQrCodeBase64(null);
 
-    const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL?.replace(/\/$/, ""); // Remove barra sobrando no final
+    const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL?.replace(/\/$/, "");
     const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
     const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
 
-    // 1. Trava de segurança do .env
     if (!whatsappUrl || !instancia || !apiKey) {
       setAlerta({
         titulo: "Erro de Configuração",
@@ -759,30 +769,22 @@ function CaixaPage() {
     const config = { headers: { "apikey": apiKey, "Content-Type": "application/json" } };
 
     try {
-      // 2. Tenta forçar o logout para limpar sessões presas (Pode dar erro 404 se já estiver desconectado, por isso o catch vazio)
       await axios.delete(`${whatsappUrl}/instance/logout/${instancia}`, config).catch(() => { });
-
-      // 3. Dá tempo para a API do WhatsApp respirar e reiniciar o motor interno
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       let qrEncontrado = false;
 
-      // 4. Tenta buscar o QR Code até 4 vezes (esperando 2 segundos entre cada tentativa)
       for (let i = 0; i < 4; i++) {
         const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, config);
-
-        // Pega o base64 dependendo de como a sua API devolve a estrutura
         const base64 = response.data?.base64 || response.data?.qrcode?.base64 || response.data?.qrcode;
 
         if (base64 && typeof base64 === 'string' && base64.trim() !== "") {
-          // Garante que o base64 tem o prefixo de imagem que o HTML exige
           const imagemPronta = base64.includes("data:image") ? base64 : `data:image/png;base64,${base64}`;
           setQrCodeBase64(imagemPronta);
           qrEncontrado = true;
-          break; // Sai do loop de repetição pois já achou o QR Code
+          break;
         }
 
-        // Se não veio o base64 ainda, espera 2 segundos antes do próximo loop
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
@@ -794,7 +796,7 @@ function CaixaPage() {
       console.error("Erro detalhado do WhatsApp:", error.response?.data || error.message);
       setAlerta({
         titulo: "Falha de Conexão",
-        mensagem: "Não foi possível gerar o QR Code. Verifique se o Motor do WhatsApp (Evolution/Z-API) está rodando e se a instância existe.",
+        mensagem: "Não foi possível gerar o QR Code. Verifique se o Motor do WhatsApp está rodando e se a instância existe.",
         tipo: "erro"
       });
     } finally {
@@ -824,7 +826,6 @@ function CaixaPage() {
     if (!itemEmEdicao) return;
     try {
       const itemAtual = itemEmEdicao;
-      // Fecha o modal e mostra mensagem instantaneamente para UI super fluída
       setItemEmEdicao(null);
       mostrarMensagemFlutuante(`${itemAtual.name} atualizado!`);
 
@@ -840,7 +841,6 @@ function CaixaPage() {
       }
       novosOverrides[String(itemAtual.id)] = overrideAtual;
 
-      // Salva no Firebase (que vai disparar o listener e atualizar cliente e garçom)
       await setDoc(doc(db, "configuracoes", "cardapio"), { overrides: novosOverrides }, { merge: true });
     } catch {
       setAlerta({ titulo: "Erro", mensagem: "Não foi possível salvar a alteração.", tipo: "erro" });
@@ -1085,14 +1085,8 @@ function CaixaPage() {
                             ))}
                           </tbody>
                         </table>
-                        {p.taxaServico ? (
-                          <div className="mt-2 flex justify-between items-center text-sm font-bold text-muted-foreground border-t border-border/50 pt-2">
-                            <span>Taxa de Serviço (10%):</span>
-                            <span>{formatCurrency(p.taxaServico)}</span>
-                          </div>
-                        ) : null}
                         {p.taxaEntrega ? (
-                          <div className="mt-1 flex justify-between items-center text-sm font-bold text-muted-foreground">
+                          <div className="mt-1 flex justify-between items-center text-sm font-bold text-muted-foreground border-t border-border/50 pt-2">
                             <span>Taxa de Entrega:</span>
                             <span>{formatCurrency(p.taxaEntrega)}</span>
                           </div>
@@ -1409,10 +1403,8 @@ function CaixaPage() {
 
                 {abaConfig === "loja" && (
                   <div className="space-y-6 mx-auto max-w-4xl mt-4 pb-10">
-                    {/* Card: Horário da Loja */}
                     <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8">
                       <div className="flex flex-col md:flex-row gap-8 items-start">
-                        {/* Lado Esquerdo: Textos e Instruções */}
                         <div className="flex-1 space-y-6 w-full md:max-w-sm">
                           <div>
                             <div className="flex items-center gap-3 mb-2">
@@ -1434,7 +1426,6 @@ function CaixaPage() {
                           </div>
                         </div>
 
-                        {/* Lado Direito: Formulários */}
                         <div className="flex-1 w-full space-y-4">
                           <div className="bg-muted/30 border border-border rounded-xl p-5 relative overflow-hidden group hover:border-primary/40 transition-colors">
                             <div className="flex items-center gap-3 mb-4">
@@ -1469,10 +1460,9 @@ function CaixaPage() {
                       </div>
                     </div>
 
-                    {/* --- NOVO: MODO PROFISSIONAL - EDIÇÃO DE CARDÁPIO --- */}
+                    {/* MODO PROFISSIONAL - EDIÇÃO DE CARDÁPIO */}
                     <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8">
                       <div className="flex flex-col md:flex-row gap-8 items-start">
-                        {/* Lado Esquerdo */}
                         <div className="flex-1 space-y-6 w-full md:max-w-sm">
                           <div>
                             <div className="flex items-center gap-3 mb-2">
@@ -1491,7 +1481,6 @@ function CaixaPage() {
                           </div>
                         </div>
 
-                        {/* Lado Direito */}
                         <div className="flex-1 w-full bg-muted/30 border border-border rounded-xl p-5">
                           <div className="flex gap-2 overflow-x-auto pb-3 mb-3 border-b border-border scrollbar-hide">
                             {(["pizzas", "pasteis", "porcoes", "bebidas", "sucos"] as const).map((t) => (
@@ -1510,10 +1499,10 @@ function CaixaPage() {
                               return (
                                 <div key={item.id} className="flex justify-between items-center p-3 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors shadow-sm">
                                   <div className="flex-1 pr-3">
-                                    <p className="text-sm font-black text-foreground">
+                                    <p className="text-sm font-black text-foreground break-words">
                                       {item.name}
                                     </p>
-                                    <p className="text-[10px] font-semibold text-muted-foreground line-clamp-1 mt-0.5">
+                                    <p className="text-[10px] font-semibold text-muted-foreground line-clamp-1 mt-0.5 break-words">
                                       {override.ingredientes !== undefined ? override.ingredientes : (item.description || item.descricao || item.ingredientes || "Sem descrição")}
                                     </p>
                                   </div>
@@ -1537,14 +1526,13 @@ function CaixaPage() {
                   <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8 mt-4 mx-auto max-w-4xl">
                     <div className="flex flex-col md:flex-row gap-8 items-center md:items-start">
 
-                      {/* Lado Esquerdo: Textos e Instruções */}
                       <div className="flex-1 space-y-6 w-full">
                         <div>
                           <div className="flex items-center gap-3 mb-2">
                             <div className="bg-green-100 p-2.5 rounded-xl text-green-600">
                               <Smartphone size={24} />
                             </div>
-                            <h3 className="text-xl sm:text-2xl font-black text-foreground">Integração WhatsApp</h3>
+                            <h3 className="text-xl sm:text-2xl font-black text-foreground break-words">Integração WhatsApp</h3>
                           </div>
                           <p className="text-sm font-semibold text-muted-foreground">
                             Conecte o número oficial da pizzaria para envio automático de atualizações de status dos pedidos aos clientes.
@@ -1610,7 +1598,7 @@ function CaixaPage() {
                         {qrCodeBase64 && !carregandoQr && (
                           <div className="mt-4 flex items-center justify-center gap-2 text-xs font-black text-amber-600 bg-amber-50 px-4 py-2.5 rounded-lg border border-amber-200 w-full">
                             <AlertTriangle size={16} />
-                            Escaneie rapidamente, o código expira!
+                            Escaneie rapidamente!
                           </div>
                         )}
                       </div>
@@ -1789,7 +1777,7 @@ function CaixaPage() {
                               </span>
                             )}
                           </div>
-                          <h3 className="font-black text-base sm:text-lg text-foreground">
+                          <h3 className="font-black text-base sm:text-lg text-foreground break-words">
                             {p.cliente?.nome ?? p.garcom ?? "Mesa"}
                           </h3>
                           <p className="text-xs font-bold text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -1893,9 +1881,9 @@ function CaixaPage() {
                 <li key={item.key} className="rounded-xl border bg-background p-3 shadow-sm">
                   <div className="flex justify-between mb-3 border-b pb-2">
                     <div>
-                      <p className="text-sm font-black">{item.nome}</p>
+                      <p className="text-sm font-black break-words">{item.nome}</p>
                     </div>
-                    <button onClick={() => removerItemDraft(item.key)} className="text-destructive">
+                    <button onClick={() => removerItemDraft(item.key)} className="text-destructive shrink-0">
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -1936,13 +1924,13 @@ function CaixaPage() {
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-card p-6 shadow-2xl border border-border">
             <div className="mb-4 flex justify-between items-center border-b border-border pb-3">
-              <div>
-                <h2 className="text-xl font-black text-foreground">{itemEmEdicao.name}</h2>
+              <div className="pr-4">
+                <h2 className="text-xl font-black text-foreground break-words">{itemEmEdicao.name}</h2>
                 <p className="text-[10px] font-bold text-muted-foreground uppercase mt-0.5">Modo de Edição Profissional</p>
               </div>
               <button
                 onClick={() => setItemEmEdicao(null)}
-                className="p-2 bg-muted hover:bg-red-100 hover:text-red-600 rounded-full transition-colors"
+                className="p-2 bg-muted hover:bg-red-100 hover:text-red-600 rounded-full transition-colors shrink-0"
               >
                 <X size={20} />
               </button>
@@ -2043,12 +2031,6 @@ function CaixaPage() {
                 <span>{formatCurrency(i.precoUnitario * i.quantidade)}</span>
               </div>
             ))}
-            {pedidoParaImprimir.taxaServico ? (
-              <div className="linha">
-                <span>Taxa de Serviço:</span>
-                <span>{formatCurrency(pedidoParaImprimir.taxaServico)}</span>
-              </div>
-            ) : null}
             <div className="divisor-traco"></div>
             <div className="linha forte" style={{ fontSize: "13pt", marginTop: "4px" }}>
               <span>TOTAL:</span>
