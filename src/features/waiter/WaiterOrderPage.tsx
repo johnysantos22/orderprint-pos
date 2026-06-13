@@ -63,6 +63,7 @@ const GARCOM_DRAFT_KEY = "garcom-comanda-rascunho";
 const SUCO_AO_LEITE_ACRESCIMO = 1;
 const tamanhosPizza: PizzaSize[] = ["M", "G", "GG"];
 
+// Sistema de Abas (Tabs) igual ao do cliente
 const tabs: { id: CategoriaMenu; label: string }[] = [
   { id: "pizzas", label: "Pizzas" },
   { id: "pasteis", label: "Pastéis" },
@@ -109,6 +110,7 @@ const gerarIdPedido = () =>
 export function WaiterOrderPage() {
   const [pinGarcom, setPinGarcom] = useState("5566");
 
+  // Busca o PIN atualizado na nuvem antes de liberar o acesso
   useEffect(() => {
     const unsubscribe = onSnapshot(doc(db, "configuracoes", "seguranca"), (docSnap) => {
       if (docSnap.exists() && docSnap.data().pinGarcom) {
@@ -133,13 +135,14 @@ function GarcomPage() {
     observacoes: rascunhoInicial.observacoes,
     carrinho: rascunhoInicial.carrinho,
   });
-  const [tab, setTab] = useState<CategoriaMenu>("pizzas");
+  const [tab, setTab] = useState<CategoriaMenu>("pizzas"); // Controle da Aba Ativa
   const [meiaTamanho, setMeiaTamanho] = useState<PizzaSize>(rascunhoInicial.meiaTamanho);
   const [meiaSaborA, setMeiaSaborA] = useState(rascunhoInicial.meiaSaborA);
   const [meiaSaborB, setMeiaSaborB] = useState(rascunhoInicial.meiaSaborB);
   const [mensagemCarrinho, setMensagemCarrinho] = useState("");
   const [modalSucessoAberto, setModalSucessoAberto] = useState(false);
   const [modalCarrinhoAberto, setModalCarrinhoAberto] = useState(false);
+  const [cobrarTaxaServico, setCobrarTaxaServico] = useState(true);
 
   // ESTADOS DE CONFIGURAÇÕES E ALERTAS
   const [esgotados, setEsgotados] = useState<number[]>([]);
@@ -165,9 +168,8 @@ function GarcomPage() {
     [pedido.carrinho],
   );
 
-  // CORREÇÃO JOHNY: Taxa de garçom / serviço removida conforme solicitado!
-  const taxaServico = 0;
-  const total = subtotal;
+  const taxaServico = cobrarTaxaServico ? subtotal * 0.1 : 0;
+  const total = subtotal + taxaServico;
 
   useEffect(() => {
     const draft: GarcomDraft = {
@@ -179,6 +181,7 @@ function GarcomPage() {
     localStorage.setItem(GARCOM_DRAFT_KEY, JSON.stringify(draft));
   }, [meiaSaborA, meiaSaborB, meiaTamanho, pedido]);
 
+  // ESPIÃO DO CARDÁPIO (Para travar botões de itens esgotados)
   useEffect(() => {
     const unsubscribeLoja = onSnapshot(doc(db, "configuracoes", "loja"), (docSnap) => {
       if (docSnap.exists()) {
@@ -208,6 +211,7 @@ function GarcomPage() {
     };
   }, []);
 
+  // ESPIÃO DE MESAS ABERTAS (Para identificar acréscimos/retiradas)
   useEffect(() => {
     const unsubscribePedidos = onSnapshot(query(collection(db, "pedidos")), (snap) => {
       const mesas = new Set<string>();
@@ -351,6 +355,7 @@ function GarcomPage() {
     });
   };
 
+  // ENVIAR PEDIDO PARA O FIREBASE (CAIXA)
   const enviarPedido = async () => {
     if (!lojaAberta) {
       setAlerta({
@@ -410,7 +415,7 @@ function GarcomPage() {
       itens: pedido.carrinho,
       subtotal,
       taxaEntrega: 0,
-      taxaServico: 0, // Zero fixo como pediu
+      taxaServico,
       total,
       impresso: false,
       observacoes: pedido.observacoes.trim(),
@@ -420,7 +425,7 @@ function GarcomPage() {
       await setDoc(doc(db, "pedidos", pedidoMesa.id), pedidoMesa);
       localStorage.removeItem(GARCOM_DRAFT_KEY);
       setPedido({
-        nomeGarcom: pedido.nomeGarcom,
+        nomeGarcom: pedido.nomeGarcom, // Mantém o nome do garçom para facilitar
         numeroMesa: "",
         observacoes: "",
         carrinho: [],
@@ -438,9 +443,9 @@ function GarcomPage() {
   };
 
   const conteudoCarrinho = (isModal: boolean) => (
-    <section className={`flex flex-col border-primary bg-card overflow-hidden ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2" : "rounded-2xl border-2 shadow-sm"}`}>
+    <section className={`flex flex-col border-primary bg-card ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2 overflow-hidden" : "rounded-2xl border-2 shadow-sm"}`}>
       <div className={`flex items-center justify-between gap-3 bg-primary px-5 py-4 text-primary-foreground ${isModal ? "shrink-0" : "border-b border-border"}`}>
-        <h2 className="flex items-center gap-2 text-lg font-black uppercase break-words">
+        <h2 className="flex items-center gap-2 text-lg font-black uppercase">
           <ShoppingCart size={22} aria-hidden="true" />
           Mesa {pedido.numeroMesa || "--"}
         </h2>
@@ -475,7 +480,7 @@ function GarcomPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-black text-foreground break-words">
+                      <p className="text-sm font-black text-foreground">
                         {item.nome}
                         {item.tamanho && (
                           <span className="ml-2 text-primary">({item.tamanho})</span>
@@ -488,7 +493,7 @@ function GarcomPage() {
                     <button
                       type="button"
                       onClick={() => removerItem(item.key)}
-                      className="rounded-md p-1 text-destructive shrink-0 transition hover:bg-destructive/10"
+                      className="rounded-md p-1 text-destructive transition hover:bg-destructive/10"
                       aria-label={`Remover ${item.nome}`}
                     >
                       <Trash2 size={16} aria-hidden="true" />
@@ -543,7 +548,13 @@ function GarcomPage() {
           />
         </label>
 
-        {/* CÁLCULO DA TAXA DE SERVIÇO REMOVIDO DAQUI */}
+        <div className="flex items-center justify-between rounded-lg bg-background border border-border p-3">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={cobrarTaxaServico} onChange={(e) => setCobrarTaxaServico(e.target.checked)} className="rounded text-primary focus:ring-primary h-4 w-4" />
+            <span className="text-sm font-bold text-muted-foreground">Taxa de Serviço (10%)</span>
+          </label>
+          <span className="text-sm font-black text-foreground">{formatCurrency(taxaServico)}</span>
+        </div>
 
         <div className="flex items-center justify-between rounded-lg bg-background border border-border p-3">
           <span className="text-sm font-black uppercase text-muted-foreground">Total</span>
@@ -585,7 +596,7 @@ function GarcomPage() {
             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
               Atendimento de mesa
             </p>
-            <h1 className="text-2xl font-black text-primary break-words">Painel do Garçom</h1>
+            <h1 className="text-2xl font-black text-primary">Painel do Garçom</h1>
             {!lojaAberta && (
               <div className="mt-2 inline-block rounded bg-red-600 px-3 py-1 text-xs font-black uppercase tracking-wider text-white shadow-md animate-pulse">
                 ⚠️ Fechado no momento.
@@ -606,6 +617,7 @@ function GarcomPage() {
         </div>
       )}
 
+      {/* --- MODAL GLOBAL DE ALERTA --- */}
       {alerta && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity">
           <div className="w-full max-w-sm animate-in fade-in zoom-in-95 rounded-2xl bg-card p-6 text-center shadow-2xl duration-200 border border-border">
@@ -632,6 +644,7 @@ function GarcomPage() {
         </div>
       )}
 
+      {/* --- MODAL DE CONFIRMAÇÃO --- */}
       {confirmarAcao && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity">
           <div className="w-full max-w-sm animate-in fade-in zoom-in-95 rounded-2xl bg-card p-6 text-center shadow-2xl duration-200 border border-border">
@@ -762,6 +775,7 @@ function GarcomPage() {
             )}
           </div>
 
+          {/* ÁREA DE ABAS E CARDÁPIO COMPLETO */}
           <div className="bg-card border border-border rounded-xl p-5 sm:p-6 shadow-sm">
             <div className="mb-6 flex flex-wrap gap-2">
               {tabs.map((item) => (
@@ -779,6 +793,7 @@ function GarcomPage() {
               ))}
             </div>
 
+            {/* ABA: PIZZAS */}
             {tab === "pizzas" && (
               <div className="grid gap-3">
                 <div className="rounded-lg border-2 border-dashed border-primary/45 bg-background p-4">
@@ -846,7 +861,7 @@ function GarcomPage() {
                   </div>
                 </div>
 
-                {pizzas.map((pizza: any) => {
+                {pizzas.map((pizza) => {
                   const esgotado = esgotados.includes(pizza.id);
                   const override = menuOverrides[String(pizza.id)] || {};
                   const descricaoPizza = override.ingredientes !== undefined ? override.ingredientes : pizza.description;
@@ -861,19 +876,19 @@ function GarcomPage() {
                         </div>
                       )}
                       <div className="mb-4 pr-20">
-                        <h3 className={`text-lg font-black break-words leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
+                        <h3 className={`text-lg font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
                           <span className="mr-2 text-primary">
                             {String(pizza.id).padStart(2, "0")}.
                           </span>
                           {pizza.name}
                         </h3>
                         {descricaoPizza && (
-                          <p className="mt-1 text-sm font-medium break-words text-muted-foreground">
+                          <p className="mt-1 text-sm font-medium text-muted-foreground">
                             {descricaoPizza}
                           </p>
                         )}
                         {pizza.highlight && (
-                          <p className="mt-2 text-xs font-black uppercase break-words text-primary">
+                          <p className="mt-2 text-xs font-black uppercase text-primary">
                             {pizza.highlight}
                           </p>
                         )}
@@ -913,6 +928,7 @@ function GarcomPage() {
               </div>
             )}
 
+            {/* DEMAIS ABAS (Pastéis, Porções, Bebidas, Sucos) */}
             {tab !== "pizzas" && (
               <div className="grid gap-3 sm:grid-cols-2">
                 {((tab === "pasteis"
@@ -940,7 +956,7 @@ function GarcomPage() {
                           </div>
                         )}
                         <div className="mb-4 pr-20">
-                          <h3 className={`text-base font-black break-words leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
+                          <h3 className={`text-base font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
                             <span className="mr-2 text-primary">{item.id}.</span>
                             {item.name}
                           </h3>
@@ -958,7 +974,7 @@ function GarcomPage() {
                                 key: `suco-${item.id}-natural`,
                                 id: item.id,
                                 nome: `Suco ${item.name}`,
-                                categoria: "suco",
+                                categoria: "suco", // Corrigido para "suco"
                                 precoUnitario: precoBase,
                               })
                             }
@@ -980,7 +996,7 @@ function GarcomPage() {
                                 key: `suco-${item.id}-ao-leite`,
                                 id: item.id,
                                 nome: `Suco ${item.name} ao leite`,
-                                categoria: "suco",
+                                categoria: "suco", // Corrigido para "suco"
                                 precoUnitario: precoBase + SUCO_AO_LEITE_ACRESCIMO,
                               })
                             }
@@ -1021,12 +1037,12 @@ function GarcomPage() {
                         </div>
                       )}
                       <span className="pr-16">
-                        <span className={`block break-words text-base font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
+                        <span className={`block text-base font-black leading-tight ${esgotado ? 'text-red-900/60 line-through decoration-red-500/40' : 'text-foreground'}`}>
                           <span className="mr-2 text-primary">{item.id}.</span>
                           {item.name}
                         </span>
                         {descricaoItem && (
-                          <span className="mt-1 block break-words text-xs font-medium text-muted-foreground">
+                          <span className="mt-1 block text-xs font-medium text-muted-foreground">
                             {descricaoItem}
                           </span>
                         )}
@@ -1049,6 +1065,7 @@ function GarcomPage() {
         </aside>
       </div>
 
+      {/* MODAL DO CARRINHO (Apenas Mobile) */}
       {modalCarrinhoAberto && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity lg:hidden">
           {conteudoCarrinho(true)}
@@ -1080,6 +1097,7 @@ function GarcomPage() {
         </div>
       )}
 
+      {/* BOTÃO FLUTUANTE DO CARRINHO (Apenas Mobile/Tablets) */}
       {(pedido.carrinho.length > 0 || pedido.observacoes.trim().length > 0) && (
         <button
           type="button"
