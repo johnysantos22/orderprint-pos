@@ -218,9 +218,9 @@ function CaixaPage() {
 
   const atendimentoAtual = atendimentosAbertos.find((a) => a.id === atendimentoSelecionado);
 
-  // ====================================================================================
-  // FUNÇÃO ORIGINAL RESTAURADA: Envia os dados exatamente como a tela preta gosta
-  // ====================================================================================
+  // =========================================================================
+  // MOTOR DE IMPRESSÃO - 100% TELA PRETA (Sem window.print, sem HTML)
+  // =========================================================================
   const imprimirCupom = useCallback(
     async (pedido: Pedido, opcoes: ImprimirCupomOptions = {}) => {
       const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
@@ -235,6 +235,7 @@ function CaixaPage() {
       const isAcrescimo = origemDoPedido.includes("ACRÉSCIMO") || origemDoPedido.includes("ACRESCIMO");
       const isCorrecao = origemDoPedido.includes("CORREÇÃO") || origemDoPedido.includes("CORRECAO") || origemDoPedido.includes("RETIRADA");
 
+      // 1. NOME OU MESA
       let nomeParaImpressao = opcoes.pessoa || pedido.cliente?.nome || pedido.garcom || "Balcao";
 
       if (pedido.id.startsWith("CONF-")) {
@@ -249,25 +250,22 @@ function CaixaPage() {
         }
       }
 
-      // RESTAURANDO A LÓGICA DE TELEFONE ORIGINAL
-      let telefoneParaImpressao = pedido.telefone || pedido.cliente?.telefone || "";
+      // 2. DADOS DE CONTATO
+      let dadosContato = "";
+      const telefoneReal = pedido.telefone || pedido.cliente?.telefone || "";
 
+      if (telefoneReal.trim() !== "") {
+        dadosContato += `WhatsApp: ${telefoneReal}\n`;
+      }
       if (pedido.tipoEntrega === "ENTREGAR" && pedido.cliente?.endereco) {
-        const enderecoTxt = `Endereco de Entrega: ${pedido.cliente.endereco}`;
-        telefoneParaImpressao = telefoneParaImpressao
-          ? `${telefoneParaImpressao}\n${enderecoTxt}`
-          : `\n${enderecoTxt}`;
+        dadosContato += `Endereco: ${pedido.cliente.endereco}\n`;
       }
-
       if (pedido.pagamento) {
-        const pagFormatado = `Pagamento: ${pedido.pagamento.toUpperCase()}`;
-        telefoneParaImpressao = telefoneParaImpressao
-          ? `${telefoneParaImpressao}\n${pagFormatado}`
-          : `\n${pagFormatado}`;
+        dadosContato += `Pagamento: ${pedido.pagamento.toUpperCase()}`;
       }
 
+      // 3. OBSERVAÇÕES
       let observacoesParaImpressao = pedido.observacoes || "";
-
       if (isAcrescimo && !conferencia && !pedido.id.startsWith("CONF-")) {
         const aviso = `*** ATENCAO: ACRESCIMO DA MESA ${pedido.mesa} ***`;
         observacoesParaImpressao = observacoesParaImpressao ? `${aviso} | ${observacoesParaImpressao}` : aviso;
@@ -279,34 +277,34 @@ function CaixaPage() {
       try {
         setStatusImpressao(`Enviando pedido para a Tela Preta...`);
 
-        // Timeout adicionado para não travar se o Windows bugar a impressora
+        // Envia direto pro printer.js na tela preta
         await axios.post(`${impressoraUrl}/imprimir`, {
           id: removerAcentos(pedido.id),
           data: pedido.data,
           origem: removerAcentos(origemDoPedido),
           cliente: removerAcentos(nomeParaImpressao),
-          telefone: removerAcentos(telefoneParaImpressao),
+          telefone: removerAcentos(dadosContato.trim()),
           total: pedido.total,
           taxaEntrega: pedido.taxaEntrega || 0,
           itens: pedido.itens.map(item => ({
             ...item,
+            quantidade: item.quantidade,
             nome: removerAcentos(item.nome),
             tamanho: item.tamanho ? removerAcentos(item.tamanho) : ""
           })),
-          taxaServico: 0,
           observacoes: removerAcentos(observacoesParaImpressao)
-        }, { timeout: 8000 });
+        });
 
-        setStatusImpressao(`Cupom processado!`);
+        setStatusImpressao(`Cupom impresso com sucesso!`);
       } catch (error) {
         console.warn("Falha na ponte local de impressão:", error);
         setStatusImpressao("Erro na comunicação com a impressora.");
         setAlerta({
-          titulo: "Impressora Offline ou Fila Travada 🖨️",
-          mensagem: "O Windows rejeitou o documento. Cancele os documentos com erro na fila do Windows, verifique o cabo USB e tente novamente.",
+          titulo: "Impressora Offline 🖨️",
+          mensagem: "A tela preta não respondeu. Verifique se o iniciar.bat está rodando no computador do Caixa.",
           tipo: "erro",
         });
-        throw error;
+        throw new Error("Falha na comunicação com a impressora");
       }
     },
     []
@@ -315,14 +313,17 @@ function CaixaPage() {
   const imprimirPedido = useCallback(
     async (p: Pedido) => {
       try {
+        // Dispara pra tela preta (seja chamado manualmente pelo botão ou automático pela fila)
         await imprimirCupom(p);
 
+        // Se imprimiu com sucesso, salva no Firebase que já foi impresso
         if (!p.impresso) {
           await updateDoc(doc(db, "pedidos", p.id), {
             impresso: true,
             impressoEm: new Date().toISOString(),
           });
 
+          // Notificação de WhatsApp invisível (só manda no primeiro print, não nos manuais repetidos)
           let telefoneCliente = p.telefone || p.cliente?.telefone;
           if (telefoneCliente && !p.id.startsWith("CONF-")) {
             telefoneCliente = telefoneCliente.replace(/\D/g, '');
@@ -343,6 +344,7 @@ function CaixaPage() {
               };
 
               const configAxios = { headers: { "apikey": apiKey, "Content-Type": "application/json" } };
+
               axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios).catch(() => { });
             }
           }
@@ -350,12 +352,13 @@ function CaixaPage() {
         setPedidoComFalha(null);
       } catch (error) {
         setPedidoComFalha(p);
-        throw error;
+        throw error; // Propaga pra fila automática não se matar tentando imprimir num sistema offline
       }
     },
     [imprimirCupom],
   );
 
+  // É ESSA FUNÇÃO AQUI QUE PUXA OS PEDIDOS DO CLIENTE E DO GARÇOM E IMPRIME!
   const processarPedidos = useCallback(async () => {
     if (imprimindoRef.current) return;
     imprimindoRef.current = true;
@@ -367,9 +370,9 @@ function CaixaPage() {
           .find((p) => !p.impresso && p.status !== "cancelado");
         if (pendente) {
           try {
-            await imprimirPedido(pendente);
+            await imprimirPedido(pendente); // Manda o pedido do Garçom/Cliente direto pra tela preta!
           } catch (e) {
-            temPendente = false; // Interrompe se a impressora não responder, protegendo o sistema
+            temPendente = false;
           }
         } else {
           temPendente = false;
@@ -406,15 +409,15 @@ function CaixaPage() {
       id: `CONF-${atend.titulo.replace(/\s+/g, "-")}`,
       data: new Date().toISOString(),
       origem: atend.titulo,
-      pagamento: "CONFERENCIA",
+      pagamento: "A DEFINIR NO CAIXA",
       itens: itensConsolidados,
       subtotal: atend.total,
       total: atend.total,
       impresso: true,
       observacoes: "*** CONFERENCIA DE MESA ***",
-      cliente: { nome: "Balcao" }
+      cliente: { nome: "Conferencia - " + atend.titulo }
     };
-    await imprimirCupom(pedidoConferencia, { tipoCupom: "conferencia", pessoa: "Balcao" });
+    await imprimirCupom(pedidoConferencia, { tipoCupom: "conferencia" });
   };
 
   const pendentes = pedidos.filter(
@@ -492,6 +495,7 @@ function CaixaPage() {
       const ord = p.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
       setPedidos(ord);
       pedidosRef.current = ord;
+      // Dispara a impressão automática sempre que o Firebase mandar um pedido novo
       processarPedidos();
     });
     const unsubLoja = onSnapshot(doc(db, "configuracoes", "loja"), (snap) => {
@@ -1392,15 +1396,21 @@ function CaixaPage() {
                     <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8">
                       <div className="flex flex-col md:flex-row gap-8 items-start">
                         <div className="flex-1 space-y-6 w-full md:max-w-sm">
-                          <div className="flex items-center gap-3 mb-2">
-                            <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-600">
-                              <Edit3 size={24} />
+                          <div>
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-600">
+                                <Edit3 size={24} />
+                              </div>
+                              <h3 className="text-xl sm:text-2xl font-black text-foreground">Edição de Cardápio</h3>
                             </div>
-                            <h3 className="text-xl sm:text-2xl font-black text-foreground">Edição de Cardápio</h3>
+                            <p className="text-sm font-semibold text-muted-foreground">
+                              Altere preços e a descrição/ingredientes dos produtos. As atualizações refletem imediatamente no catálogo do cliente e no app do garçom.
+                            </p>
                           </div>
-                          <p className="text-sm font-semibold text-muted-foreground">
-                            Altere preços e a descrição/ingredientes dos produtos. As atualizações refletem imediatamente no catálogo do cliente e no app do garçom.
-                          </p>
+                          <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-emerald-800 text-xs font-semibold flex gap-3 items-start shadow-sm">
+                            <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
+                            <p>Modo Profissional: As alterações realizadas nesta seção são sincronizadas instantaneamente com o catálogo digital e os terminais de atendimento.</p>
+                          </div>
                         </div>
 
                         <div className="flex-1 w-full bg-muted/30 border border-border rounded-xl p-5">
@@ -1421,10 +1431,10 @@ function CaixaPage() {
                               return (
                                 <div key={item.id} className="flex justify-between items-center p-3 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors shadow-sm">
                                   <div className="flex-1 pr-3">
-                                    <p className="text-sm font-black text-foreground break-all">
+                                    <p className="text-sm font-black text-foreground break-words">
                                       {item.name}
                                     </p>
-                                    <p className="text-[10px] font-semibold text-muted-foreground line-clamp-1 mt-0.5 break-all">
+                                    <p className="text-[10px] font-semibold text-muted-foreground line-clamp-1 mt-0.5 break-words">
                                       {override.ingredientes !== undefined ? override.ingredientes : (item.description || item.descricao || item.ingredientes || "Sem descrição")}
                                     </p>
                                   </div>
@@ -1447,12 +1457,40 @@ function CaixaPage() {
                 {abaConfig === "whatsapp" && (
                   <div className="bg-card border border-border rounded-xl shadow-sm p-4 sm:p-6 md:p-8 mt-4 mx-auto max-w-4xl">
                     <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-center md:items-start">
+
                       <div className="flex-1 space-y-4 md:space-y-6 w-full">
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="bg-green-100 p-2.5 rounded-xl text-green-600">
-                            <Smartphone size={24} />
+                        <div>
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="bg-green-100 p-2.5 rounded-xl text-green-600">
+                              <Smartphone size={24} />
+                            </div>
+                            <h3 className="text-xl sm:text-2xl font-black text-foreground">Integração WhatsApp</h3>
                           </div>
-                          <h3 className="text-xl sm:text-2xl font-black text-foreground">Integração WhatsApp</h3>
+                          <p className="text-sm font-semibold text-muted-foreground">
+                            Conecte o número oficial da pizzaria para envio automático de atualizações de status dos pedidos aos clientes.
+                          </p>
+                        </div>
+
+                        <div className="bg-muted/30 border border-border rounded-xl p-5 space-y-4 hidden md:block">
+                          <h4 className="font-black text-sm uppercase text-foreground">Como conectar:</h4>
+                          <ol className="text-xs sm:text-sm font-semibold text-muted-foreground space-y-3">
+                            <li className="flex gap-2.5 items-start">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-black text-white">1</span>
+                              Clique no botão "Gerar QR Code" abaixo.
+                            </li>
+                            <li className="flex gap-2.5 items-start">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-black text-white">2</span>
+                              Abra o WhatsApp no celular comercial da pizzaria.
+                            </li>
+                            <li className="flex gap-2.5 items-start">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-black text-white">3</span>
+                              Acesse <strong>Configurações {'>'} Aparelhos Conectados {'>'} Conectar um Aparelho</strong>.
+                            </li>
+                            <li className="flex gap-2.5 items-start">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-black text-white">4</span>
+                              Aponte a câmera para o QR Code que aparecerá na tela.
+                            </li>
+                          </ol>
                         </div>
 
                         <button
@@ -1488,7 +1526,14 @@ function CaixaPage() {
                             </div>
                           )}
                         </div>
+                        {qrCodeBase64 && !carregandoQr && (
+                          <div className="mt-4 flex items-center justify-center gap-2 text-xs font-black text-amber-600 bg-amber-50 px-4 py-2.5 rounded-lg border border-amber-200 w-full">
+                            <AlertTriangle size={16} />
+                            Escaneie rapidamente!
+                          </div>
+                        )}
                       </div>
+
                     </div>
                   </div>
                 )}
@@ -1502,6 +1547,9 @@ function CaixaPage() {
                     <h1 className="text-lg sm:text-xl md:text-2xl font-black text-foreground">
                       Painel Geral
                     </h1>
+                    <p className="text-[10px] sm:text-xs md:text-sm font-bold text-muted-foreground mt-1">
+                      Acompanhe as métricas e o histórico de pedidos.
+                    </p>
                   </div>
                   <div className="flex items-center gap-2 md:gap-3">
                     <div className="text-right hidden sm:block">
@@ -1534,7 +1582,8 @@ function CaixaPage() {
 
                 <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3 rounded-xl border border-border bg-card p-3 md:p-4 shadow-sm mb-4">
                   <div className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm font-black uppercase text-foreground">
-                    <Filter size={14} className="text-primary" /> Filtros:
+                    <Filter size={14} className="text-primary md:w-[16px] md:h-[16px]" /> Filtro de
+                    Período:
                   </div>
                   <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full xl:w-auto">
                     <div className="flex w-full xl:w-auto rounded-lg border border-border bg-background p-1 shadow-inner overflow-x-auto">
@@ -1552,7 +1601,7 @@ function CaixaPage() {
                       onClick={() => setMostrarCancelados(!mostrarCancelados)}
                       className={`flex w-full xl:w-auto justify-center items-center gap-1.5 px-3 py-1.5 md:px-4 md:py-2 text-[10px] font-black uppercase rounded-lg border shadow-sm transition-all ${mostrarCancelados ? "border-red-500 bg-red-600 text-white" : "bg-card text-muted-foreground hover:bg-muted"}`}
                     >
-                      <Ban size={12} />
+                      <Ban size={12} className="md:w-3.5 md:h-3.5" />
                       {mostrarCancelados ? "Ocultar Cancelados" : "Ver Cancelados"}
                     </button>
                   </div>
@@ -1563,24 +1612,45 @@ function CaixaPage() {
                     <div className="rounded-xl border border-border bg-card p-3 sm:p-4 shadow-sm">
                       <div className="flex justify-between items-start">
                         <div>
-                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5">Faturamento</p>
-                          <strong className="text-lg sm:text-xl font-black text-green-500">{formatCurrency(statsPeriodo.faturamento)}</strong>
+                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5 sm:mb-1">
+                            Faturamento
+                          </p>
+                          <strong className="text-lg sm:text-xl font-black text-green-500">
+                            {formatCurrency(statsPeriodo.faturamento)}
+                          </strong>
+                        </div>
+                        <div className="bg-green-500/10 p-2 rounded-lg">
+                          <DollarSign className="text-green-500 w-4 h-4 sm:w-5 sm:h-5" />
                         </div>
                       </div>
                     </div>
                     <div className="rounded-xl border border-border bg-card p-3 sm:p-4 shadow-sm">
                       <div className="flex justify-between items-start">
                         <div>
-                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5">Pedidos</p>
-                          <strong className="text-lg sm:text-xl font-black text-blue-500">{statsPeriodo.qtdPedidos}</strong>
+                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5 sm:mb-1">
+                            Pedidos ({tituloDashboard})
+                          </p>
+                          <strong className="text-lg sm:text-xl font-black text-blue-500">
+                            {statsPeriodo.qtdPedidos}
+                          </strong>
+                        </div>
+                        <div className="bg-blue-500/10 p-2 rounded-lg">
+                          <ShoppingBag className="text-blue-500 w-4 h-4 sm:w-5 sm:h-5" />
                         </div>
                       </div>
                     </div>
                     <div className="rounded-xl border border-border bg-card p-3 sm:p-4 shadow-sm">
                       <div className="flex justify-between items-start">
                         <div>
-                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5">Ticket Médio</p>
-                          <strong className="text-lg sm:text-xl font-black text-orange-500">{formatCurrency(statsPeriodo.ticketMedio)}</strong>
+                          <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground mb-0.5 sm:mb-1">
+                            Ticket Médio
+                          </p>
+                          <strong className="text-lg sm:text-xl font-black text-orange-500">
+                            {formatCurrency(statsPeriodo.ticketMedio)}
+                          </strong>
+                        </div>
+                        <div className="bg-orange-500/10 p-2 rounded-lg">
+                          <TrendingUp className="text-orange-500 w-4 h-4 sm:w-5 sm:h-5" />
                         </div>
                       </div>
                     </div>
@@ -1588,10 +1658,15 @@ function CaixaPage() {
                 )}
 
                 <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+                  <div className="border-b border-border bg-muted/30 px-3 sm:px-4 py-2.5 sm:py-3">
+                    <h2 className="text-sm sm:text-base font-black text-foreground">
+                      Histórico de Pedidos
+                    </h2>
+                  </div>
                   <div className="divide-y divide-border bg-card">
                     {pedidosFiltrados.length === 0 && (
                       <div className="p-6 sm:p-8 text-center text-xs sm:text-sm font-bold text-muted-foreground">
-                        Nenhum registro encontrado.
+                        Nenhum pedido encontrado no período.
                       </div>
                     )}
                     {pedidosFiltrados.map((p) => (
@@ -1604,35 +1679,73 @@ function CaixaPage() {
                             <span className="rounded-md bg-secondary px-2 py-1 text-[10px] font-black uppercase text-secondary-foreground">
                               {p.origem}
                             </span>
+                            {p.status === "cancelado" ? (
+                              <span className="rounded-md bg-red-600 px-2 py-1 text-[10px] font-black uppercase text-white">
+                                Cancelado
+                              </span>
+                            ) : p.status === "finalizado" ? (
+                              <span className="rounded-md bg-green-600 px-2 py-1 text-[10px] font-black uppercase text-white">
+                                Finalizado
+                              </span>
+                            ) : (
+                              <span
+                                className={`rounded-md px-2 py-1 text-[10px] font-black uppercase ${p.status === "em_preparo"
+                                  ? "bg-yellow-100 text-yellow-700"
+                                  : p.status === "em_rota"
+                                    ? "bg-blue-100 text-blue-700"
+                                    : p.status === "pronto"
+                                      ? "bg-green-100 text-green-700"
+                                      : p.impresso
+                                        ? "bg-cyan-100 text-cyan-800"
+                                        : "bg-orange-100 text-orange-700 animate-pulse ring-1 ring-orange-300"
+                                  }`}
+                              >
+                                {p.status === "em_preparo" ? "🍕 Em Preparo" :
+                                  p.status === "em_rota" ? "🛵 Em Rota" :
+                                    p.status === "pronto" ? "🛍️ Pronto" :
+                                      p.impresso ? "✅ Recebido" : "⏳ Pendente"}
+                              </span>
+                            )}
                           </div>
-                          <h3 className="font-black text-base sm:text-lg text-foreground break-all">
+                          <h3 className="font-black text-base sm:text-lg text-foreground">
                             {p.cliente?.nome ?? p.garcom ?? "Mesa"}
                           </h3>
+                          <p className="text-xs font-bold text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <Clock size={12} /> {formatDateTime(p.data)}
+                          </p>
                         </div>
                         <div className="text-xs font-semibold text-muted-foreground space-y-1">
                           <p className="font-black text-foreground bg-muted/50 inline-block px-2 py-0.5 rounded-md">
                             {p.itens.length} item(ns)
                           </p>
+                          <p className="flex items-center gap-1">
+                            <DollarSign size={14} /> {p.pagamento}
+                          </p>
                         </div>
                         <div className="w-full md:w-auto flex flex-row md:flex-col justify-between items-center md:items-end gap-2">
-                          <p className="text-xl sm:text-2xl font-black text-primary">{formatCurrency(p.total)}</p>
+                          <div className="text-right">
+                            <p className="text-xl sm:text-2xl font-black text-primary">
+                              {formatCurrency(p.total)}
+                            </p>
+                          </div>
                           {p.status !== "cancelado" && (
                             <div className="flex gap-1.5">
                               <button
                                 onClick={() => imprimirPedido(p)}
-                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg bg-white border shadow-sm hover:bg-zinc-50"
+                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg bg-white border shadow-sm hover:bg-zinc-50 transition-colors"
+                                title="Reimprimir Pedido"
                               >
                                 <Printer size={14} />
                               </button>
                               <button
                                 onClick={() => abrirModalEdicao(p)}
-                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
+                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
                               >
                                 <Edit3 size={14} />
                               </button>
                               <button
                                 onClick={() => setPedidoParaCancelar(p.id)}
-                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                                className="h-8 w-8 md:h-9 md:w-9 flex justify-center items-center rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
                               >
                                 <Trash2 size={14} />
                               </button>
@@ -1649,14 +1762,169 @@ function CaixaPage() {
         </main>
       </div>
 
+      {mensagemFlutuante && (
+        <div
+          className="fixed right-4 top-24 z-[110] flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-800 shadow-lg animate-in slide-in-from-right-5 fade-in duration-300"
+        >
+          <CheckCircle2 size={18} />
+          {mensagemFlutuante}
+        </div>
+      )}
+
       {alerta && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl bg-card p-6 text-center shadow-2xl border border-border">
+            <div
+              className={`mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full ${alerta.tipo === "erro" ? "bg-red-100 text-red-600" : alerta.tipo === "sucesso" ? "bg-green-100 text-green-600" : "bg-orange-100 text-orange-600"}`}
+            >
+              {alerta.tipo === "erro" || alerta.tipo === "aviso" ? (
+                <AlertTriangle size={36} />
+              ) : (
+                <CheckCircle2 size={36} />
+              )}
+            </div>
             <h2 className="mb-2 text-2xl font-black text-foreground">{alerta.titulo}</h2>
             <p className="mb-6 font-semibold text-muted-foreground">{alerta.mensagem}</p>
-            <button onClick={() => setAlerta(null)} className="w-full rounded-xl bg-primary py-3 text-sm font-bold text-white shadow-md">
+            <button
+              onClick={() => setAlerta(null)}
+              className="w-full rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground shadow-md transition hover:bg-primary/90"
+            >
               Entendido
             </button>
+          </div>
+        </div>
+      )}
+
+      {draftPedidoEdicao && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-card p-6 shadow-2xl border">
+            <div className="mb-4 flex justify-between border-b pb-3">
+              <h2 className="text-xl font-black">Editar Pedido</h2>
+              <button
+                onClick={() => setDraftPedidoEdicao(null)}
+                className="p-2 bg-muted hover:bg-red-100 rounded-full"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <ul className="space-y-3 mb-6">
+              {draftPedidoEdicao.itens.map((item) => (
+                <li key={item.key} className="rounded-xl border bg-background p-3 shadow-sm">
+                  <div className="flex justify-between mb-3 border-b pb-2">
+                    <div>
+                      <p className="text-sm font-black break-words">{item.nome}</p>
+                    </div>
+                    <button onClick={() => removerItemDraft(item.key)} className="text-destructive shrink-0">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-1 bg-muted p-1 rounded-lg">
+                      <button
+                        onClick={() => alterarQtdItemDraft(item.key, -1)}
+                        className="h-7 w-7 rounded bg-background font-black"
+                      >
+                        <Minus size={14} />
+                      </button>
+                      <span className="w-8 text-center text-sm font-black">{item.quantidade}</span>
+                      <button
+                        onClick={() => alterarQtdItemDraft(item.key, 1)}
+                        className="h-7 w-7 rounded bg-background font-black"
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                    <strong className="text-primary">
+                      {formatCurrency(item.precoUnitario * item.quantidade)}
+                    </strong>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <button
+              onClick={handleSalvarEdicaoItens}
+              className="w-full rounded-xl bg-primary py-3.5 text-sm font-black uppercase text-white"
+            >
+              Salvar Edição
+            </button>
+          </div>
+        </div>
+      )}
+
+      {itemEmEdicao && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-card p-6 shadow-2xl border border-border">
+            <div className="mb-4 flex justify-between items-center border-b border-border pb-3">
+              <div className="pr-4">
+                <h2 className="text-xl font-black text-foreground break-words">{itemEmEdicao.name}</h2>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase mt-0.5">Modo de Edição Profissional</p>
+              </div>
+              <button
+                onClick={() => setItemEmEdicao(null)}
+                className="p-2 bg-muted hover:bg-red-100 hover:text-red-600 rounded-full transition-colors shrink-0"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-5 mt-2">
+              <div>
+                <label className="text-xs font-black uppercase text-muted-foreground mb-1.5 block">Ingredientes / Descrição</label>
+                <textarea
+                  value={ingredientesEdit}
+                  onChange={(e) => setIngredientesEdit(e.target.value)}
+                  placeholder="Descreva o item ou liste os ingredientes..."
+                  className="w-full rounded-xl border border-border bg-background p-3 text-sm font-semibold outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner resize-none h-24"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-black uppercase text-muted-foreground mb-1.5 block">Preço(s) Atual(is)</label>
+                <div className="space-y-2">
+                  {Object.keys(precosEdit).map(key => (
+                    <div key={key} className="flex items-center gap-2">
+                      {key !== 'default' && (
+                        <span className="w-12 text-xs font-black bg-muted text-center py-2.5 rounded-lg border border-border text-foreground">{key}</span>
+                      )}
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-bold">R$</span>
+                        <input type="number" step="0.01" value={precosEdit[key]} onChange={(e) => setPrecosEdit(prev => ({ ...prev, [key]: e.target.value }))} className="h-11 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm font-black outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button onClick={handleSalvarEdicaoItemCardapio} className="w-full mt-6 rounded-xl bg-primary py-3.5 text-sm font-black uppercase text-white shadow-md hover:bg-primary/90 hover:shadow-lg hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
+              <CheckCircle2 size={18} /> Salvar Alterações
+            </button>
+          </div>
+        </div>
+      )}
+
+      {pedidoParaCancelar && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-card p-6 text-center shadow-2xl border">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-red-600">
+              <AlertTriangle size={36} />
+            </div>
+            <h2 className="mb-2 text-2xl font-black">Cancelar Pedido?</h2>
+            <p className="font-semibold text-muted-foreground text-sm">
+              Este pedido sairá do faturamento.
+            </p>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setPedidoParaCancelar(null)}
+                className="flex-1 rounded-xl border py-3 font-bold hover:bg-muted"
+              >
+                Voltar
+              </button>
+              <button
+                onClick={confirmarCancelamento}
+                className="flex-1 rounded-xl bg-red-600 py-3 font-bold text-white hover:bg-red-700"
+              >
+                Sim, Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}
