@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
-const PORT = Number(process.env.PRINT_BRIDGE_PORT ?? process.env.PORT ?? 3001);
+const PORT = Number(process.env.PRINT_BRIDGE_PORT ?? process.env.PORT ?? 3005);
 const PAPER_WIDTH = Number(process.env.PRINT_BRIDGE_PAPER_WIDTH ?? 228);
 const RECEIPT_WIDTH = 32;
 
