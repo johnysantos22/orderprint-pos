@@ -27,6 +27,7 @@ import {
   RefreshCw,
   QrCode,
   Package,
+  Info,
 } from "lucide-react";
 import { PinLock } from "@/shared/components/PinLock";
 import somCampainha from "@/assets/campainha.mp3";
@@ -444,6 +445,7 @@ function CaixaPage() {
   const statsPeriodo = useMemo(() => {
     let faturamento = 0;
     let qtdPedidos = 0;
+    const contagemItens: Record<string, { nome: string; quantidade: number; valorTotal: number }> = {};
     pedidos.forEach((pedido) => {
       if (pedido.status === "cancelado") return;
       const dataPedido = new Date(pedido.data);
@@ -456,9 +458,23 @@ function CaixaPage() {
       if (incluir) {
         faturamento += pedido.total;
         qtdPedidos++;
+
+        pedido.itens.forEach((item) => {
+          const key = item.nome + (item.tamanho ? ` (${item.tamanho})` : '');
+          if (!contagemItens[key]) {
+            contagemItens[key] = { nome: key, quantidade: 0, valorTotal: 0 };
+          }
+          contagemItens[key].quantidade += item.quantidade;
+          contagemItens[key].valorTotal += item.precoUnitario * item.quantidade;
+        });
       }
     });
-    return { faturamento, qtdPedidos, ticketMedio: qtdPedidos > 0 ? faturamento / qtdPedidos : 0 };
+
+    const topItens = Object.values(contagemItens)
+      .sort((a, b) => b.quantidade - a.quantidade)
+      .slice(0, 5);
+
+    return { faturamento, qtdPedidos, ticketMedio: qtdPedidos > 0 ? faturamento / qtdPedidos : 0, topItens };
   }, [pedidos, filtroTempo, periodos]);
 
   const pedidosFiltrados = useMemo(() => {
@@ -699,6 +715,7 @@ function CaixaPage() {
         total: draftPedidoEdicao.total,
       });
       setDraftPedidoEdicao(null);
+      mostrarMensagemFlutuante("Pedido atualizado com sucesso!");
     } catch {
       setAlerta({ titulo: "Erro", mensagem: "Erro ao atualizar o pedido.", tipo: "erro" });
     }
@@ -1168,6 +1185,18 @@ function CaixaPage() {
                           <p className="text-xs font-semibold text-muted-foreground">
                             Desative itens esgotados em tempo real.
                           </p>
+
+                          <div className="mt-4 bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
+                            <h4 className="flex items-center gap-2 text-blue-800 font-bold text-sm mb-2">
+                              <Info size={16} /> Como usar o Estoque
+                            </h4>
+                            <ul className="text-xs text-blue-700/80 space-y-1.5 list-disc pl-4">
+                              <li>Escolha a categoria desejada no menu abaixo.</li>
+                              <li>Clique em <strong>"Pausar Item"</strong> para marcar um produto como esgotado.</li>
+                              <li>Itens pausados não poderão ser pedidos pelos clientes ou garçons.</li>
+                              <li>Para voltar a vender, clique em <strong>"Reativar Item"</strong>.</li>
+                            </ul>
+                          </div>
                         </div>
 
                         <div className="space-y-2">
@@ -1263,6 +1292,17 @@ function CaixaPage() {
                             Recomendamos criar senhas diferentes para o Caixa e para os Garçons. Senhas fáceis (como 1234) podem comprometer a segurança da loja.
                           </p>
                         </div>
+
+                        <div className="bg-primary/5 border border-primary/10 p-4 rounded-xl">
+                          <h4 className="flex items-center gap-2 text-primary font-bold text-sm mb-2">
+                            <Info size={16} /> Como gerenciar acessos
+                          </h4>
+                          <ul className="text-xs text-muted-foreground space-y-1.5 list-disc pl-4">
+                            <li><strong>Senha do Caixa:</strong> Bloqueia a visualização deste painel completo, relatórios e configurações.</li>
+                            <li><strong>Senha da Equipe:</strong> Exigida para que os garçons abram e adicionem itens nas comandas das mesas.</li>
+                            <li>Digite o novo PIN (mínimo 4 números) e clique em "Salvar" para atualizar imediatamente.</li>
+                          </ul>
+                        </div>
                       </div>
 
                       <div className="flex-1 w-full space-y-4">
@@ -1355,6 +1395,17 @@ function CaixaPage() {
                               O botão de "Aberta/Fechada" do painel lateral no PDV é que determina se o sistema aceita pedidos. Este texto aqui serve apenas para informação visual ao cliente.
                             </p>
                           </div>
+
+                          <div className="bg-purple-50/50 border border-purple-100 p-4 rounded-xl">
+                            <h4 className="flex items-center gap-2 text-purple-800 font-bold text-sm mb-2">
+                              <Info size={16} /> Instruções de Uso
+                            </h4>
+                            <ul className="text-xs text-purple-700/80 space-y-1.5 list-disc pl-4">
+                              <li>Este texto aparecerá de forma destacada no catálogo online.</li>
+                              <li>Preencha com o expediente atual, ex: <strong>"Terça a Domingo | 18h às 23:30"</strong>.</li>
+                              <li>Clique em "Salvar Horário" para aplicar a mudança instantaneamente.</li>
+                            </ul>
+                          </div>
                         </div>
 
                         <div className="flex-1 w-full space-y-4">
@@ -1403,6 +1454,17 @@ function CaixaPage() {
                           <p className="text-sm font-semibold text-muted-foreground">
                             Altere preços e a descrição/ingredientes dos produtos. As atualizações refletem imediatamente no catálogo do cliente e no app do garçom.
                           </p>
+                        </div>
+
+                        <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-xl">
+                          <h4 className="flex items-center gap-2 text-emerald-800 font-bold text-sm mb-2">
+                            <Info size={16} /> Como editar o Cardápio
+                          </h4>
+                          <ul className="text-xs text-emerald-700/80 space-y-1.5 list-disc pl-4">
+                            <li>Navegue pelas categorias (Pizzas, Bebidas, etc.) à direita.</li>
+                            <li>Clique em <strong>"Editar"</strong> no produto desejado.</li>
+                            <li>Atualize o valor ou a descrição e salve. Todos os menus conectados serão atualizados na hora.</li>
+                          </ul>
                         </div>
 
                         <div className="flex-1 w-full bg-muted/30 border border-border rounded-xl p-5">
@@ -1470,6 +1532,18 @@ function CaixaPage() {
                             <><QrCode size={18} /> Gerar QR Code</>
                           )}
                         </button>
+
+                        <div className="bg-green-50/50 border border-green-100 p-4 rounded-xl mt-6">
+                          <h4 className="flex items-center gap-2 text-green-800 font-bold text-sm mb-2">
+                            <Info size={16} /> Status: Aparelho Conectado
+                          </h4>
+                          <ul className="text-xs text-green-700/80 space-y-1.5 list-disc pl-4">
+                            <li>O seu celular já está configurado como o WhatsApp oficial da pizzaria.</li>
+                            <li>Notificações automáticas de status ("Em preparo", "Saiu para entrega") são enviadas por ele.</li>
+                            <li>Caso os clientes parem de receber mensagens, use os botões acima para gerar um novo QR Code e reconectar.</li>
+                            <li>Dica: Mantenha o celular conectado à internet para evitar atrasos nos envios.</li>
+                          </ul>
+                        </div>
                       </div>
 
                       <div className="w-full md:w-[320px] flex flex-col items-center">
@@ -1589,6 +1663,28 @@ function CaixaPage() {
                   </div>
                 )}
 
+                {!mostrarCancelados && statsPeriodo.topItens.length > 0 && (
+                  <div className="rounded-xl border border-border bg-card p-4 sm:p-5 shadow-sm mb-4">
+                    <h3 className="text-[10px] md:text-xs font-black uppercase text-muted-foreground mb-3 flex items-center gap-1.5">
+                      <TrendingUp size={14} className="text-primary" />
+                      Top 5 Mais Vendidos ({tituloDashboard})
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+                      {statsPeriodo.topItens.map((item, index) => (
+                        <div key={item.nome} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/20 shadow-sm hover:border-primary/30 transition-colors">
+                          <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 text-primary font-black text-sm shrink-0">
+                            {index + 1}º
+                          </div>
+                          <div className="flex-1 overflow-hidden">
+                            <p className="text-xs font-bold text-foreground truncate" title={item.nome}>{item.nome}</p>
+                            <p className="text-[10px] font-semibold text-muted-foreground mt-0.5">{item.quantidade}x saídas <span className="opacity-40 px-1">•</span> {formatCurrency(item.valorTotal)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
                   <div className="divide-y divide-border bg-card">
                     {pedidosFiltrados.length === 0 && (
@@ -1602,14 +1698,40 @@ function CaixaPage() {
                         className={`flex flex-col md:grid md:grid-cols-[1.5fr_1fr_auto] gap-3 px-3 sm:px-4 py-3 sm:py-4 items-start md:items-center transition hover:bg-muted/30 ${p.status === "cancelado" ? "opacity-60 bg-red-50/10 hover:bg-red-50/20" : ""}`}
                       >
                         <div>
-                          <div className="mb-2 flex gap-2">
+                          <div className="mb-2 flex flex-wrap gap-2">
                             <span className="rounded-md bg-secondary px-2 py-1 text-[10px] font-black uppercase text-secondary-foreground">
                               {p.origem}
                             </span>
+                            <span className="rounded-md border border-border px-2 py-1 text-[10px] font-black uppercase text-muted-foreground shadow-sm">
+                              #{p.id.slice(0, 6).toUpperCase()}
+                            </span>
+                            {p.status === "cancelado" ? (
+                              <span className="rounded-md bg-red-600 px-2 py-1 text-[10px] font-black uppercase text-white shadow-sm">Cancelado</span>
+                            ) : p.status === "finalizado" ? (
+                              <span className="rounded-md bg-green-600 px-2 py-1 text-[10px] font-black uppercase text-white shadow-sm">Finalizado</span>
+                            ) : (
+                              <span
+                                className={`rounded-md px-2 py-1 text-[10px] font-black uppercase shadow-sm ${p.status === "em_preparo"
+                                  ? "bg-yellow-100 text-yellow-700 border border-yellow-200"
+                                  : p.status === "em_rota"
+                                    ? "bg-blue-100 text-blue-700 border border-blue-200"
+                                    : p.status === "pronto"
+                                      ? "bg-green-100 text-green-700 border border-green-200"
+                                      : p.impresso
+                                        ? "bg-cyan-100 text-cyan-800 border border-cyan-200"
+                                        : "bg-orange-100 text-orange-700 animate-pulse ring-1 ring-orange-300"
+                                  }`}
+                              >
+                                {p.status === "em_preparo" ? "🍕 Em Preparo" : p.status === "em_rota" ? "🛵 Em Rota" : p.status === "pronto" ? "🛍️ Pronto" : p.impresso ? "✅ Recebido" : "⏳ Pendente"}
+                              </span>
+                            )}
                           </div>
                           <h3 className="font-black text-base sm:text-lg text-foreground break-all">
                             {p.cliente?.nome ?? p.garcom ?? "Mesa"}
                           </h3>
+                          <p className="text-xs font-bold text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <Clock size={12} /> {formatDateTime(p.data)}
+                          </p>
                         </div>
                         <div className="text-xs font-semibold text-muted-foreground space-y-1">
                           <p className="font-black text-foreground bg-muted/50 inline-block px-2 py-0.5 rounded-md">
@@ -1650,6 +1772,183 @@ function CaixaPage() {
           )}
         </main>
       </div>
+
+      {draftPedidoEdicao && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl bg-card p-6 shadow-2xl border border-border max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-black text-foreground">
+                Editar Pedido #{draftPedidoEdicao.id.slice(0, 6).toUpperCase()}
+              </h2>
+              <button
+                onClick={() => setDraftPedidoEdicao(null)}
+                className="text-muted-foreground hover:bg-muted p-2 rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+              {draftPedidoEdicao.itens.length === 0 ? (
+                <p className="text-center text-muted-foreground font-semibold py-4">
+                  Nenhum item neste pedido.
+                </p>
+              ) : (
+                draftPedidoEdicao.itens.map((item) => (
+                  <div key={item.key} className="flex justify-between items-center bg-muted/30 p-3 rounded-xl border border-border">
+                    <div className="flex-1">
+                      <p className="font-bold text-sm text-foreground">
+                        {item.nome} {item.tamanho ? `(${item.tamanho})` : ""}
+                      </p>
+                      <p className="text-xs font-semibold text-muted-foreground">
+                        {formatCurrency(item.precoUnitario)} cada
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 bg-background border border-border rounded-lg p-1">
+                        <button
+                          onClick={() => alterarQtdItemDraft(item.key, -1)}
+                          className="w-7 h-7 flex items-center justify-center rounded-md bg-muted text-foreground hover:bg-primary/20 hover:text-primary transition-colors"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <span className="font-black text-sm w-4 text-center">{item.quantidade}</span>
+                        <button
+                          onClick={() => alterarQtdItemDraft(item.key, 1)}
+                          className="w-7 h-7 flex items-center justify-center rounded-md bg-muted text-foreground hover:bg-primary/20 hover:text-primary transition-colors"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => removerItemDraft(item.key)}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="mt-4 border-t border-border pt-4">
+              <div className="flex justify-between items-center mb-4">
+                <span className="text-sm font-bold text-muted-foreground">Novo Total:</span>
+                <span className="text-xl font-black text-primary">{formatCurrency(draftPedidoEdicao.total)}</span>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDraftPedidoEdicao(null)}
+                  className="flex-1 rounded-xl bg-muted py-3 text-sm font-bold text-foreground hover:bg-muted/80 transition-colors shadow-sm"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSalvarEdicaoItens}
+                  className="flex-1 rounded-xl bg-primary py-3 text-sm font-bold text-white shadow-md hover:bg-primary/90 transition-colors"
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {itemEmEdicao && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-card p-6 shadow-2xl border border-border">
+            <h2 className="text-xl font-black text-foreground mb-4">Editar {itemEmEdicao.name}</h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">
+                  Descrição / Ingredientes
+                </label>
+                <textarea
+                  value={ingredientesEdit}
+                  onChange={(e) => setIngredientesEdit(e.target.value)}
+                  className="w-full min-h-[80px] rounded-xl border border-border bg-background p-3 text-sm font-semibold outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none"
+                  placeholder="Ex: Molho, mussarela, orégano..."
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">
+                  Preço(s)
+                </label>
+                <div className="space-y-2">
+                  {Object.keys(precosEdit).map((tamanho) => (
+                    <div key={tamanho} className="flex items-center gap-3">
+                      {tamanho !== 'default' && (
+                        <span className="w-10 text-sm font-black text-foreground uppercase text-center bg-muted py-2 rounded-lg">
+                          {tamanho}
+                        </span>
+                      )}
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">R$</span>
+                        <input
+                          type="text"
+                          value={precosEdit[tamanho]}
+                          onChange={(e) => setPrecosEdit({ ...precosEdit, [tamanho]: e.target.value.replace(/[^0-9.,]/g, "") })}
+                          className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-4 font-bold text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setItemEmEdicao(null)}
+                className="flex-1 rounded-xl bg-muted py-3 text-sm font-bold text-foreground hover:bg-muted/80 transition-colors shadow-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSalvarEdicaoItemCardapio}
+                className="flex-1 rounded-xl bg-primary py-3 text-sm font-bold text-white shadow-md hover:bg-primary/90 transition-colors"
+              >
+                Salvar Alterações
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pedidoParaCancelar && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-card p-6 text-center shadow-2xl border border-border">
+            <div className="mx-auto w-16 h-16 bg-red-100 text-red-600 flex items-center justify-center rounded-full mb-4">
+              <Trash2 size={32} />
+            </div>
+            <h2 className="mb-2 text-xl font-black text-foreground">Cancelar Pedido?</h2>
+            <p className="mb-6 font-semibold text-muted-foreground text-sm">
+              Tem certeza que deseja cancelar este pedido? Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setPedidoParaCancelar(null)} className="flex-1 rounded-xl bg-muted py-3 text-sm font-bold text-foreground shadow-sm">
+                Não, Voltar
+              </button>
+              <button onClick={confirmarCancelamento} className="flex-1 rounded-xl bg-red-600 py-3 text-sm font-bold text-white shadow-md">
+                Sim, Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mensagemFlutuante && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[110] bg-zinc-800 text-white px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-5">
+          <CheckCircle2 size={18} className="text-green-400" />
+          {mensagemFlutuante}
+        </div>
+      )}
 
       {alerta && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">

@@ -26,7 +26,7 @@ import { db } from "@/services/firebase";
 
 type Categoria = "pizzas" | "pasteis" | "porcoes" | "bebidas" | "sucos";
 type TipoEntrega = "NO_LOCAL" | "RETIRAR" | "ENTREGAR";
-type FormaPagamento = "PIX" | "Crédito" | "Débito";
+type FormaPagamento = "PIX" | "Crédito" | "Débito" | "Dinheiro";
 
 export interface ItemCarrinho {
   key: string;
@@ -88,7 +88,7 @@ const opcoesEntrega: {
     { value: "ENTREGAR", label: "Entregar", detalhe: "+ R$ 5,00", taxa: 5, icon: Bike },
   ];
 
-const formasPagamento: FormaPagamento[] = ["PIX", "Crédito", "Débito"];
+const formasPagamento: FormaPagamento[] = ["PIX", "Crédito", "Débito", "Dinheiro"];
 
 interface ClienteDraft {
   tab: Categoria;
@@ -186,7 +186,8 @@ export function CustomerOrderPage() {
     carrinho.length > 0 &&
     nome.trim().length > 0 &&
     (tipoEntrega === "NO_LOCAL" || telefone.replace(/\D/g, "").length >= 10) &&
-    (!enderecoObrigatorio || endereco.trim().length > 0);
+    (!enderecoObrigatorio || endereco.trim().length > 0) &&
+    (formaPagamento !== "Dinheiro" || observacoes.trim().length > 0);
 
   useEffect(() => {
     const draft: ClienteDraft = {
@@ -424,8 +425,8 @@ export function CustomerOrderPage() {
   };
 
   const conteudoCarrinho = (isModal: boolean) => (
-    <section className={`flex flex-col border-primary bg-card ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2 overflow-hidden" : "rounded-lg border-2 shadow-[var(--shadow-warm)]"}`}>
-      <div className={`flex items-center justify-between gap-3 bg-primary px-4 py-3 text-primary-foreground ${isModal ? "shrink-0" : "border-b border-border"}`}>
+    <section className={`flex flex-col border-primary bg-card overflow-hidden border-2 ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200" : "rounded-xl shadow-[var(--shadow-warm)]"}`}>
+      <div className="flex shrink-0 items-center justify-between gap-3 bg-primary px-4 py-3 text-primary-foreground">
         <h2 className="flex items-center gap-2 text-lg font-black uppercase">
           <ShoppingCart size={20} aria-hidden="true" />
           Carrinho
@@ -562,6 +563,22 @@ export function CustomerOrderPage() {
           </div>
         )}
 
+        {formaPagamento === "Dinheiro" && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 text-amber-600">
+                <AlertTriangle size={18} aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-sm font-black uppercase text-amber-800">Pagamento em Dinheiro</p>
+                <p className="text-xs font-semibold text-amber-700">
+                  Por favor, informe nas <strong>Observações</strong> acima se você vai precisar de troco (e para quanto).
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-2 rounded-lg bg-background border border-border p-3">
           <div className="flex justify-between text-sm font-bold text-muted-foreground">
             <span>Subtotal</span>
@@ -620,6 +637,15 @@ export function CustomerOrderPage() {
       return;
     }
     if (!dadosConferenciaOk) {
+      if (formaPagamento === "Dinheiro" && observacoes.trim().length === 0) {
+        setAlerta({
+          titulo: "Precisa de Troco?",
+          mensagem: "Como o pagamento será em dinheiro, por favor informe nas observações se você vai precisar de troco (e para quanto).",
+          tipo: "aviso",
+        });
+        return;
+      }
+
       setAlerta({
         titulo: "Dados Incompletos",
         mensagem: "Preencha os dados de contato corretamente antes de finalizar o pedido.",

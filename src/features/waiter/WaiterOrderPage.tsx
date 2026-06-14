@@ -441,8 +441,8 @@ function GarcomPage() {
   };
 
   const conteudoCarrinho = (isModal: boolean) => (
-    <section className={`flex flex-col border-primary bg-card ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200 border-2 overflow-hidden" : "rounded-2xl border-2 shadow-sm"}`}>
-      <div className={`flex items-center justify-between gap-3 bg-primary px-5 py-4 text-primary-foreground ${isModal ? "shrink-0" : "border-b border-border"}`}>
+    <section className={`flex flex-col border-primary bg-card overflow-hidden border-2 ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200" : "rounded-2xl shadow-sm"}`}>
+      <div className="flex shrink-0 items-center justify-between gap-3 bg-primary px-5 py-4 text-primary-foreground">
         <h2 className="flex items-center gap-2 text-lg font-black uppercase">
           <ShoppingCart size={22} aria-hidden="true" />
           Mesa {pedido.numeroMesa || "--"}
