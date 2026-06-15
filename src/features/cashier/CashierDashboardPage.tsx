@@ -97,6 +97,22 @@ export interface Pedido {
   telefone?: string;
 }
 
+const formatarNomeItem = (item: ItemPedido) => {
+  let nome = item.nome.trim();
+  const categoriaLower = item.categoria?.toLowerCase() || "";
+  const nomeLower = nome.toLowerCase();
+
+  const isPastel =
+    categoriaLower.includes("pastel") ||
+    categoriaLower.includes("pasteis") ||
+    pasteis.some(p => p.id === item.id || p.name.trim().toLowerCase() === nomeLower);
+
+  if (isPastel && !nomeLower.startsWith("pastel")) {
+    nome = `Pastel ${nome}`;
+  }
+  return nome;
+};
+
 interface ImprimirCupomOptions {
   tipoCupom?: "pedido" | "conferencia";
   rotuloPessoa?: "Cliente" | "Atendente";
@@ -293,7 +309,7 @@ function CaixaPage() {
           taxaEntrega: isInterno ? 0 : (pedido.taxaEntrega || 0),
           itens: pedido.itens.map(item => ({
             quantidade: item.quantidade,
-            nome: removerAcentos(item.nome),
+            nome: removerAcentos(formatarNomeItem(item)),
             tamanho: item.tamanho ? removerAcentos(item.tamanho) : ""
           })),
           observacoes: removerAcentos(observacoesParaImpressao)
@@ -460,7 +476,8 @@ function CaixaPage() {
         qtdPedidos++;
 
         pedido.itens.forEach((item) => {
-          const key = item.nome + (item.tamanho ? ` (${item.tamanho})` : '');
+          const nomeFormatado = formatarNomeItem(item);
+          const key = nomeFormatado + (item.tamanho ? ` (${item.tamanho})` : '');
           if (!contagemItens[key]) {
             contagemItens[key] = { nome: key, quantidade: 0, valorTotal: 0 };
           }
@@ -1024,7 +1041,7 @@ function CaixaPage() {
                                   {item.quantidade}x
                                 </td>
                                 <td className="py-2 font-bold text-sm md:text-base">
-                                  {item.nome}{" "}
+                                  {formatarNomeItem(item)}{" "}
                                   {item.tamanho && (
                                     <span className="text-primary ml-1 text-xs md:text-sm">({item.tamanho})</span>
                                   )}
@@ -1798,7 +1815,7 @@ function CaixaPage() {
                   <div key={item.key} className="flex justify-between items-center bg-muted/30 p-3 rounded-xl border border-border">
                     <div className="flex-1">
                       <p className="font-bold text-sm text-foreground">
-                        {item.nome} {item.tamanho ? `(${item.tamanho})` : ""}
+                        {formatarNomeItem(item)} {item.tamanho ? `(${item.tamanho})` : ""}
                       </p>
                       <p className="text-xs font-semibold text-muted-foreground">
                         {formatCurrency(item.precoUnitario)} cada

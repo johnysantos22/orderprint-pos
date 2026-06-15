@@ -1,4 +1,5 @@
 import { formatCurrency, formatDateTime } from "@/shared/utils/format";
+import { pasteis } from "@/domain/menu/menu";
 
 const RECEIPT_WIDTH = 32;
 
@@ -8,6 +9,7 @@ export interface ReceiptItem {
   precoUnitario: number;
   quantidade: number;
   tamanho?: string;
+  categoria?: string;
 }
 
 export interface ReceiptOrder {
@@ -78,8 +80,21 @@ const wrapText = (text: string, width = RECEIPT_WIDTH) => {
   return lines;
 };
 
-const itemLabel = (item: ReceiptItem) =>
-  `${item.quantidade}x ${item.nome}${item.tamanho ? ` (${item.tamanho})` : ""}`;
+const itemLabel = (item: ReceiptItem) => {
+  let nome = item.nome.trim();
+  const categoriaLower = item.categoria?.toLowerCase() || "";
+  const nomeLower = nome.toLowerCase();
+
+  const isPastel =
+    categoriaLower.includes("pastel") ||
+    categoriaLower.includes("pasteis") ||
+    pasteis.some(p => p.name.trim().toLowerCase() === nomeLower);
+
+  if (isPastel && !nomeLower.startsWith("pastel")) {
+    nome = `Pastel ${nome}`;
+  }
+  return `${item.quantidade}x ${nome}${item.tamanho ? ` (${item.tamanho})` : ""}`;
+};
 
 export function createReceiptText(order: ReceiptOrder) {
   const lines = [
