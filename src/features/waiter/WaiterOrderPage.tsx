@@ -668,7 +668,7 @@ function GarcomPage() {
 
       <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[1fr_390px]">
         <section
-          className={`space-y-4 transition-all duration-300 ${!lojaAberta ? "pointer-events-none opacity-50 grayscale" : ""}`}
+          className={`min-w-0 space-y-4 transition-all duration-300 ${!lojaAberta ? "pointer-events-none opacity-50 grayscale" : ""}`}
         >
           <div className="bg-card border border-border rounded-xl p-5 sm:p-6 shadow-sm">
             <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
@@ -708,9 +708,9 @@ function GarcomPage() {
             </div>
 
             {mesasAbertas.length > 0 && (
-              <div className="mt-5 pt-4 border-t border-border">
+              <div className="mt-5 pt-4 border-t border-border w-full min-w-0">
                 <span className="text-[10px] font-black uppercase text-muted-foreground mb-3 block">Mesas em atendimento (Toque para adicionar itens):</span>
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide w-full">
                   {mesasAbertas.map((m) => {
                     const isSelected = mesaInputNormalizada === m;
                     return (
