@@ -240,7 +240,7 @@ function CaixaPage() {
   // ==================================================================================
   const imprimirCupom = useCallback(
     async (pedido: Pedido, opcoes: ImprimirCupomOptions = {}) => {
-      const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
+      const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL || "http://localhost:3001";
       const conferencia = opcoes.tipoCupom === "conferencia";
 
       const removerAcentos = (str: string) => {
@@ -307,17 +307,11 @@ function CaixaPage() {
           telefone: removerAcentos(dadosContato.trim()),
           total: pedido.total,
           taxaEntrega: isInterno ? 0 : (pedido.taxaEntrega || 0),
-          itens: pedido.itens.map(item => {
-            // Cola o tamanho no nome antes de mandar para a impressora
-            let nomeFinal = formatarNomeItem(item);
-            if (item.tamanho) {
-              nomeFinal = `${nomeFinal} (Tam: ${item.tamanho})`;
-            }
-            return {
-              quantidade: item.quantidade,
-              nome: removerAcentos(nomeFinal)
-            };
-          }),
+          itens: pedido.itens.map(item => ({
+            quantidade: item.quantidade,
+            nome: removerAcentos(formatarNomeItem(item)),
+            tamanho: item.tamanho ? removerAcentos(item.tamanho) : ""
+          })),
           observacoes: removerAcentos(observacoesParaImpressao)
         }, { timeout: 8000 });
 
