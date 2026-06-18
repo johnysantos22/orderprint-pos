@@ -348,9 +348,15 @@ function CaixaPage() {
           });
 
           // Notificação de WhatsApp (Sem travar o sistema se der erro)
+          // Notificação de WhatsApp (Com Espiões de Rastreio)
           let telefoneCliente = p.telefone || p.cliente?.telefone;
-          if (telefoneCliente && !p.id.startsWith("CONF-")) {
-            telefoneCliente = telefoneCliente.replace(/\D/g, '');
+
+          if (!telefoneCliente) {
+            console.log("WhatsApp abortado: Pedido não tem telefone.");
+          } else if (!p.id.startsWith("CONF-")) {
+
+            telefoneCliente = telefoneCliente.replace(/\D/g, ''); // Limpa traços e espaços
+
             if (telefoneCliente.length >= 10) {
               if (!telefoneCliente.startsWith('55')) telefoneCliente = '55' + telefoneCliente;
 
@@ -361,6 +367,9 @@ function CaixaPage() {
               const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
               const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
 
+              // Espião 1: Chegou até aqui?
+              alert("Tentando enviar para o número: " + telefoneCliente);
+
               const payload = {
                 number: telefoneCliente,
                 text: mensagem,
@@ -368,7 +377,16 @@ function CaixaPage() {
               };
 
               const configAxios = { headers: { "apikey": apiKey, "Content-Type": "application/json" } };
-              axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios).catch(() => { });
+
+              axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios)
+                .then(() => console.log("✅ Mensagem enviada com sucesso!"))
+                .catch((erro) => {
+                  const motivo = erro.response?.data?.message || erro.message;
+                  alert("ERRO DA API: " + motivo);
+                });
+            } else {
+              // Espião 2: O número é muito curto!
+              alert("WhatsApp abortado: Telefone tem menos de 10 números (Faltou o DDD?). Número lido: " + telefoneCliente);
             }
           }
         }
