@@ -307,19 +307,11 @@ function CaixaPage() {
           telefone: removerAcentos(dadosContato.trim()),
           total: pedido.total,
           taxaEntrega: isInterno ? 0 : (pedido.taxaEntrega || 0),
-          itens: pedido.itens.map(item => {
-            let nomeFinal = formatarNomeItem(item);
-
-            // É AQUI QUE A MÁGICA ACONTECE: Cola o tamanho no nome da pizza!
-            if (item.tamanho) {
-              nomeFinal = `${nomeFinal} (Tam: ${item.tamanho})`;
-            }
-
-            return {
-              quantidade: item.quantidade,
-              nome: removerAcentos(nomeFinal)
-            };
-          }),
+          itens: pedido.itens.map(item => ({
+            quantidade: item.quantidade,
+            nome: removerAcentos(formatarNomeItem(item)),
+            tamanho: item.tamanho ? removerAcentos(item.tamanho) : ""
+          })),
           observacoes: removerAcentos(observacoesParaImpressao)
         }, { timeout: 8000 });
 
