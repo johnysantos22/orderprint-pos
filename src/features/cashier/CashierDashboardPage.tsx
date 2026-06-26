@@ -765,10 +765,10 @@ function CaixaPage() {
   };
 
   const buscarQrCodeWhatsApp = async () => {
+    // 1. LIMPA A TELA IMEDIATAMENTE E COMEÇA A GIRAR O SPINNER
     setCarregandoQr(true);
     setQrCodeBase64(null);
 
-    // Agora ele vai puxar o localhost:8080 fixo que você deixou na Vercel
     const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL?.replace(/\/$/, "");
     const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
     const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
@@ -781,44 +781,69 @@ function CaixaPage() {
     };
 
     try {
-      // 1. VERIFICA SE JÁ ESTÁ CONECTADO
+      // 2. VERIFICA SE JÁ ESTÁ CONECTADO
+      let isConnected = false;
       try {
         const stateResponse = await axios.get(`${whatsappUrl}/instance/connectionState/${instancia}`, config);
         const state = stateResponse.data?.instance?.state || stateResponse.data?.state;
 
         if (state === "open" || state === "connected") {
-          setCarregandoQr(false);
-          setAlerta({
-            titulo: "Conectado ✅",
-            mensagem: "O WhatsApp já está ativo! Não precisa ler o QR Code.",
-            tipo: "sucesso"
-          });
-          return;
+          isConnected = true;
         }
       } catch (e) {
-        console.log("Instância desconectada, buscando QR Code novo...");
+        console.log("Status não respondeu, assumindo que está desconectado...");
       }
 
-      // 2. BUSCA O QR CODE NOVO (Já que não está conectado)
-      const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, config);
+      if (isConnected) {
+        setCarregandoQr(false);
+        setAlerta({
+          titulo: "Tudo Certo! ✅",
+          mensagem: "O WhatsApp já está conectado! Não é necessário ler o QR Code.",
+          tipo: "sucesso"
+        });
+        return;
+      }
 
-      const base64 = response.data?.base64 || response.data?.qrcode?.base64 || response.data?.qrcode || response.data?.code;
+      // 3. O SEGREDO: FORÇA A API A DESCARTAR O QR CODE VELHO
+      // O logout aqui não afeta quem tá logado (pois já verificamos acima que NÃO está logado)
+      // Ele serve apenas para limpar o cache da tela preta.
+      await axios.delete(`${whatsappUrl}/instance/logout/${instancia}`, config).catch(() => { });
 
-      if (base64) {
-        const imagemPronta = base64.includes("data:image") ? base64 : `data:image/png;base64,${base64}`;
-        setQrCodeBase64(imagemPronta);
-      } else {
-        throw new Error("A imagem do QR Code não foi gerada pela API.");
+      // Deixa o botão girando por 2 segundos enquanto a API reinicia o processo internamente
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // 4. FICA EM LOOP ATÉ A IMAGEM NOVA ESTAR PRONTA PARA APARECER
+      let qrEncontrado = false;
+
+      for (let i = 0; i < 5; i++) {
+        const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, config);
+
+        const base64 = response.data?.base64 || response.data?.qrcode?.base64 || response.data?.qrcode || response.data?.code;
+
+        if (base64 && typeof base64 === 'string' && base64.trim() !== "") {
+          const imagemPronta = base64.includes("data:image") ? base64 : `data:image/png;base64,${base64}`;
+          setQrCodeBase64(imagemPronta);
+          qrEncontrado = true;
+          break; // Achou a imagem novinha, sai do loop e mostra na tela!
+        }
+
+        // Se a imagem não ficou pronta, espera mais 2 segundos girando e tenta de novo
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      if (!qrEncontrado) {
+        throw new Error("Demorou muito para gerar a imagem.");
       }
 
     } catch (error) {
       console.error("Erro QR Code:", error);
       setAlerta({
-        titulo: "Erro de Conexão",
-        mensagem: "Verifique se a tela preta está aberta. Se estiver, o navegador pode estar bloqueando a imagem (Erro de Mixed Content).",
-        tipo: "erro"
+        titulo: "Aguarde um momento ⏳",
+        mensagem: "A tela preta está reiniciando o motor do WhatsApp. Clique em Atualizar novamente em alguns segundos.",
+        tipo: "aviso"
       });
     } finally {
+      // Para o spinner de girar
       setCarregandoQr(false);
     }
   };
