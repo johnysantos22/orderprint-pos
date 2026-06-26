@@ -768,50 +768,54 @@ function CaixaPage() {
     setCarregandoQr(true);
     setQrCodeBase64(null);
 
+    // Agora ele vai puxar o localhost:8080 fixo que você deixou na Vercel
     const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL?.replace(/\/$/, "");
     const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
     const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
 
-    if (!whatsappUrl || !instancia || !apiKey) {
-      setAlerta({
-        titulo: "Erro de Configuração",
-        mensagem: "As variáveis do WhatsApp não estão configuradas no arquivo .env.",
-        tipo: "erro"
-      });
-      setCarregandoQr(false);
-      return;
-    }
-
-    const config = { headers: { "apikey": apiKey, "Content-Type": "application/json" } };
+    const config = {
+      headers: {
+        "apikey": apiKey,
+        "Content-Type": "application/json"
+      }
+    };
 
     try {
-      await axios.delete(`${whatsappUrl}/instance/logout/${instancia}`, config).catch(() => { });
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 1. VERIFICA SE JÁ ESTÁ CONECTADO
+      try {
+        const stateResponse = await axios.get(`${whatsappUrl}/instance/connectionState/${instancia}`, config);
+        const state = stateResponse.data?.instance?.state || stateResponse.data?.state;
 
-      let qrEncontrado = false;
-
-      for (let i = 0; i < 4; i++) {
-        const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, config);
-        const base64 = response.data?.base64 || response.data?.qrcode?.base64 || response.data?.qrcode;
-
-        if (base64 && typeof base64 === 'string' && base64.trim() !== "") {
-          const imagemPronta = base64.includes("data:image") ? base64 : `data:image/png;base64,${base64}`;
-          setQrCodeBase64(imagemPronta);
-          qrEncontrado = true;
-          break;
+        if (state === "open" || state === "connected") {
+          setCarregandoQr(false);
+          setAlerta({
+            titulo: "Conectado ✅",
+            mensagem: "O WhatsApp já está ativo! Não precisa ler o QR Code.",
+            tipo: "sucesso"
+          });
+          return;
         }
-
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (e) {
+        console.log("Instância desconectada, buscando QR Code novo...");
       }
 
-      if (!qrEncontrado) {
-        throw new Error("A API demorou muito para gerar o QR Code.");
+      // 2. BUSCA O QR CODE NOVO (Já que não está conectado)
+      const response = await axios.get(`${whatsappUrl}/instance/connect/${instancia}`, config);
+
+      const base64 = response.data?.base64 || response.data?.qrcode?.base64 || response.data?.qrcode || response.data?.code;
+
+      if (base64) {
+        const imagemPronta = base64.includes("data:image") ? base64 : `data:image/png;base64,${base64}`;
+        setQrCodeBase64(imagemPronta);
+      } else {
+        throw new Error("A imagem do QR Code não foi gerada pela API.");
       }
 
-    } catch (error: any) {
+    } catch (error) {
+      console.error("Erro QR Code:", error);
       setAlerta({
-        titulo: "Falha de Conexão",
-        mensagem: "Não foi possível gerar o QR Code. Verifique se o Motor do WhatsApp está rodando e se a instância existe.",
+        titulo: "Erro de Conexão",
+        mensagem: "Verifique se a tela preta está aberta. Se estiver, o navegador pode estar bloqueando a imagem (Erro de Mixed Content).",
         tipo: "erro"
       });
     } finally {
