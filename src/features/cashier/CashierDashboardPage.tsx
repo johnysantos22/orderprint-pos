@@ -94,9 +94,9 @@ export interface Pedido {
   tipoEntrega?: string;
   status?: string;
   telefone?: string;
+  finalizadoEm?: string; // NOVO: Carimbo de fechamento exato da mesa
 }
 
-// ADICIONADO: Tipagem exata do Atendimento para remover a linha vermelha nos parâmetros das funções
 interface Atendimento {
   tipo: "mesa" | "outro";
   id: string;
@@ -147,10 +147,8 @@ function CaixaPage() {
   const [mostrarCancelados, setMostrarCancelados] = useState(false);
 
   const [telaAtiva, setTelaAtiva] = useState<"dashboard" | "config" | "mesas">("mesas");
-  // CORREÇÃO: Adicionado 'cardapio' ao tipo do useState para não dar erro lá em baixo
   const [abaConfig, setAbaConfig] = useState<"estoque" | "senhas" | "loja" | "whatsapp" | "cardapio">("estoque");
 
-  // NOVO: Controle da Aba de Mesas na lateral (Abertas x Finalizadas)
   const [abaMesas, setAbaMesas] = useState<"abertas" | "finalizadas">("abertas");
 
   const [esgotados, setEsgotados] = useState<number[]>([]);
@@ -191,7 +189,6 @@ function CaixaPage() {
   const [atendimentoSelecionado, setAtendimentoSelecionado] = useState<string | null>(null);
   const [buscaMesa, setBuscaMesa] = useState("");
 
-  // FUNÇÃO PARA REGISTRAR O ENVIO NO FIREBASE
   const registrarLogWhatsApp = async (pedidoId: string, telefone: string, mensagem: string, statusEnvio: "sucesso" | "erro", erroDetalhe = "") => {
     try {
       await addDoc(collection(db, "historico_whatsapp"), {
@@ -257,12 +254,11 @@ function CaixaPage() {
     return [...listaMesas, ...listaOutros];
   }, [pedidos]);
 
-  // NOVO: Agrupamento de Mesas Finalizadas (Últimas 24h para não poluir com dias antigos)
+  // NOVO: Agrupamento Inteligente por Sessão de Fechamento
   const atendimentosFinalizados = useMemo<Atendimento[]>(() => {
-    const mesas = new Map<string, Pedido[]>();
+    const sessoesFechadas = new Map<string, Pedido[]>();
     const outros: Pedido[] = [];
 
-    // Limite de 24h para não misturar a "Mesa 4" de hoje com a "Mesa 4" de ontem
     const limite = new Date();
     limite.setHours(limite.getHours() - 24);
 
@@ -273,42 +269,57 @@ function CaixaPage() {
           if (/^\d+$/.test(mesaNormalizada)) {
             mesaNormalizada = parseInt(mesaNormalizada, 10).toString();
           }
-          if (!mesas.has(mesaNormalizada)) mesas.set(mesaNormalizada, []);
-          mesas.get(mesaNormalizada)!.push(p);
+
+          // Agrupa pela mesa e pelo carimbo exato de fechamento (Se for antigo sem carimbo, junta por dia)
+          const chaveSessao = p.finalizadoEm ? `mesa-${mesaNormalizada}-${p.finalizadoEm}` : `mesa-${mesaNormalizada}-${p.data.substring(0, 13)}`;
+
+          if (!sessoesFechadas.has(chaveSessao)) sessoesFechadas.set(chaveSessao, []);
+          sessoesFechadas.get(chaveSessao)!.push(p);
         } else {
           outros.push(p);
         }
       }
     });
 
-    const listaMesas = Array.from(mesas.entries())
-      .map(([mesa, peds]) => ({
+    const listaMesas = Array.from(sessoesFechadas.entries()).map(([chave, peds]) => {
+      // Ordena do primeiro pedido (bebida inicial) ao último (saideira)
+      peds.sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
+
+      const abertura = new Date(peds[0].data);
+      const fechamento = peds[0].finalizadoEm ? new Date(peds[0].finalizadoEm) : new Date(peds[peds.length - 1].data);
+
+      const hrAbertura = abertura.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      const hrFechamento = fechamento.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+      return {
         tipo: "mesa" as const,
-        id: `mesa-fin-${mesa}`,
-        titulo: `Mesa ${mesa} (Finalizada)`,
+        id: chave,
+        titulo: `Mesa ${peds[0].mesa} (${hrAbertura} às ${hrFechamento})`,
         pedidos: peds,
         total: peds.reduce((acc, p) => acc + p.total, 0),
-        data: peds[peds.length - 1].data, // Pega a data do ultimo pedido feito nela
+        data: fechamento.toISOString(),
         origem: peds[0].origem,
-      }))
-      .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+      };
+    });
 
     const listaOutros = outros
-      .map((p) => ({
-        tipo: "outro" as const,
-        id: `fin-${p.id}`,
-        titulo: `${p.cliente?.nome || p.origem} (Finalizado)`,
-        pedidos: [p],
-        total: p.total,
-        data: p.data,
-        origem: p.origem,
-      }))
-      .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+      .map((p) => {
+        const hrFechamento = new Date(p.finalizadoEm || p.data).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        return {
+          tipo: "outro" as const,
+          id: `fin-${p.id}`,
+          titulo: `${p.cliente?.nome || p.origem} (Fechado às ${hrFechamento})`,
+          pedidos: [p],
+          total: p.total,
+          data: p.finalizadoEm || p.data,
+          origem: p.origem,
+        }
+      });
 
-    return [...listaMesas, ...listaOutros];
+    // Ordena mostrando os fechamentos mais recentes primeiro no painel
+    return [...listaMesas, ...listaOutros].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
   }, [pedidos]);
 
-  // Modificado: O filtro de busca agora respeita a aba selecionada
   const atendimentosFiltrados = useMemo(() => {
     const listaBase = abaMesas === "abertas" ? atendimentosAbertos : atendimentosFinalizados;
     if (!buscaMesa.trim()) return listaBase;
@@ -318,13 +329,11 @@ function CaixaPage() {
     );
   }, [atendimentosAbertos, atendimentosFinalizados, abaMesas, buscaMesa]);
 
-  // Modificado: Procura o ID selecionado nas duas listas
   const atendimentoAtual = useMemo(() => {
     return atendimentosAbertos.find((a) => a.id === atendimentoSelecionado) ||
       atendimentosFinalizados.find((a) => a.id === atendimentoSelecionado);
   }, [atendimentosAbertos, atendimentosFinalizados, atendimentoSelecionado]);
 
-  // Booleano para esconder botoes caso a mesa esteja finalizada
   const isAtendimentoFinalizado = atendimentoAtual?.pedidos.every(p => p.status === "finalizado");
 
 
@@ -515,16 +524,20 @@ function CaixaPage() {
     }
   }, [imprimirPedido]);
 
-  // CORREÇÃO: Usando a tipagem Atendimento
+  // NOVO: Aplica o carimbo finalizadoEm para fechar a sessão da mesa e liberar pro garçom
   const finalizarAtendimento = async (atend: Atendimento) => {
     try {
+      const momentoFechamento = new Date().toISOString();
       for (const p of atend.pedidos) {
-        await updateDoc(doc(db, "pedidos", p.id), { status: "finalizado" });
+        await updateDoc(doc(db, "pedidos", p.id), {
+          status: "finalizado",
+          finalizadoEm: momentoFechamento
+        });
       }
       setAtendimentoSelecionado(null);
       setAlerta({
         titulo: "Sucesso",
-        mensagem: `${atend.titulo} finalizado com sucesso!`,
+        mensagem: `${atend.titulo} finalizado e mesa liberada!`,
         tipo: "sucesso",
       });
     } catch {
@@ -536,11 +549,10 @@ function CaixaPage() {
     }
   };
 
-  // CORREÇÃO: Usando a tipagem Atendimento
   const imprimirConferencia = async (atend: Atendimento) => {
     const itensConsolidados = atend.pedidos.flatMap((p) => p.itens);
     const pedidoConferencia: Pedido = {
-      id: `CONF-${atend.titulo.replace(/\s+/g, "-")}`,
+      id: `CONF-${atend.id.replace(/[^a-zA-Z0-9]/g, "-")}`, // Melhorado ID para não dar erro
       data: new Date().toISOString(),
       origem: atend.titulo,
       pagamento: "A DEFINIR NO CAIXA",
@@ -861,7 +873,6 @@ function CaixaPage() {
   };
 
   const buscarQrCodeWhatsApp = async () => {
-    // 1. LIMPA A TELA IMEDIATAMENTE E COMEÇA A GIRAR O SPINNER
     setCarregandoQr(true);
     setQrCodeBase64(null);
 
@@ -877,7 +888,6 @@ function CaixaPage() {
     };
 
     try {
-      // 2. VERIFICA SE JÁ ESTÁ CONECTADO
       let isConnected = false;
       try {
         const stateResponse = await axios.get(`${whatsappUrl}/instance/connectionState/${instancia}`, config);
@@ -900,15 +910,10 @@ function CaixaPage() {
         return;
       }
 
-      // 3. O SEGREDO: FORÇA A API A DESCARTAR O QR CODE VELHO
-      // O logout aqui não afeta quem tá logado (pois já verificamos acima que NÃO está logado)
-      // Ele serve apenas para limpar o cache da tela preta.
       await axios.delete(`${whatsappUrl}/instance/logout/${instancia}`, config).catch(() => { });
 
-      // Deixa o botão girando por 2 segundos enquanto a API reinicia o processo internamente
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // 4. FICA EM LOOP ATÉ A IMAGEM NOVA ESTAR PRONTA PARA APARECER
       let qrEncontrado = false;
 
       for (let i = 0; i < 5; i++) {
@@ -920,10 +925,9 @@ function CaixaPage() {
           const imagemPronta = base64.includes("data:image") ? base64 : `data:image/png;base64,${base64}`;
           setQrCodeBase64(imagemPronta);
           qrEncontrado = true;
-          break; // Achou a imagem novinha, sai do loop e mostra na tela!
+          break;
         }
 
-        // Se a imagem não ficou pronta, espera mais 2 segundos girando e tenta de novo
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
@@ -939,7 +943,6 @@ function CaixaPage() {
         tipo: "aviso"
       });
     } finally {
-      // Para o spinner de girar
       setCarregandoQr(false);
     }
   };
@@ -1661,7 +1664,7 @@ function CaixaPage() {
                           <ul className="text-xs text-emerald-700/80 space-y-1.5 list-disc pl-4">
                             <li>Navegue pelas categorias (Pizzas, Bebidas, etc.) à direita.</li>
                             <li>Clique em <strong>"Editar"</strong> no produto desejado.</li>
-                            <li>Atualize o valor ou a descrição e salve. Todos os menus conectados serão atualizados na hora.</li>
+                            <li>Atualize o valor ou a descrição e salve. Todos menus conectados serão atualizados na hora.</li>
                           </ul>
                         </div>
                       </div>
