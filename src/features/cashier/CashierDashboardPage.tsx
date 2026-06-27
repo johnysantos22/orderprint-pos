@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   Clock,
   Printer,
-  DollarSign,
   TrendingUp,
   Volume2,
   VolumeX,
@@ -31,7 +30,7 @@ import {
 } from "lucide-react";
 import { PinLock } from "@/shared/components/PinLock";
 import somCampainha from "@/assets/campainha.mp3";
-import { collection, onSnapshot, query, doc, updateDoc, setDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, setDoc, addDoc } from "firebase/firestore";
 import { db } from "@/services/firebase";
 import logo from "@/assets/logo.jpeg";
 import { pizzas, pasteis, porcoes, bebidas, sucos } from "@/domain/menu/menu";
@@ -97,6 +96,17 @@ export interface Pedido {
   telefone?: string;
 }
 
+// ADICIONADO: Tipagem exata do Atendimento para remover a linha vermelha nos parâmetros das funções
+interface Atendimento {
+  tipo: "mesa" | "outro";
+  id: string;
+  titulo: string;
+  pedidos: Pedido[];
+  total: number;
+  data: string;
+  origem: string;
+}
+
 const formatarNomeItem = (item: ItemPedido) => {
   let nome = item.nome.trim();
   const categoriaLower = item.categoria?.toLowerCase() || "";
@@ -137,7 +147,12 @@ function CaixaPage() {
   const [mostrarCancelados, setMostrarCancelados] = useState(false);
 
   const [telaAtiva, setTelaAtiva] = useState<"dashboard" | "config" | "mesas">("mesas");
-  const [abaConfig, setAbaConfig] = useState<"estoque" | "senhas" | "loja" | "whatsapp">("estoque");
+  // CORREÇÃO: Adicionado 'cardapio' ao tipo do useState para não dar erro lá em baixo
+  const [abaConfig, setAbaConfig] = useState<"estoque" | "senhas" | "loja" | "whatsapp" | "cardapio">("estoque");
+
+  // NOVO: Controle da Aba de Mesas na lateral (Abertas x Finalizadas)
+  const [abaMesas, setAbaMesas] = useState<"abertas" | "finalizadas">("abertas");
+
   const [esgotados, setEsgotados] = useState<number[]>([]);
   const [menuOverrides, setMenuOverrides] = useState<Record<string, any>>({});
   const [itemEmEdicao, setItemEmEdicao] = useState<any | null>(null);
@@ -176,7 +191,23 @@ function CaixaPage() {
   const [atendimentoSelecionado, setAtendimentoSelecionado] = useState<string | null>(null);
   const [buscaMesa, setBuscaMesa] = useState("");
 
-  const atendimentosAbertos = useMemo(() => {
+  // FUNÇÃO PARA REGISTRAR O ENVIO NO FIREBASE
+  const registrarLogWhatsApp = async (pedidoId: string, telefone: string, mensagem: string, statusEnvio: "sucesso" | "erro", erroDetalhe = "") => {
+    try {
+      await addDoc(collection(db, "historico_whatsapp"), {
+        pedidoId,
+        telefone,
+        mensagem,
+        statusEnvio,
+        erroDetalhe,
+        dataEnvio: new Date().toISOString()
+      });
+    } catch (e) {
+      console.error("Falha ao salvar log do WhatsApp no Firebase:", e);
+    }
+  };
+
+  const atendimentosAbertos = useMemo<Atendimento[]>(() => {
     const mesas = new Map<string, Pedido[]>();
     const outros: Pedido[] = [];
 
@@ -226,14 +257,76 @@ function CaixaPage() {
     return [...listaMesas, ...listaOutros];
   }, [pedidos]);
 
+  // NOVO: Agrupamento de Mesas Finalizadas (Últimas 24h para não poluir com dias antigos)
+  const atendimentosFinalizados = useMemo<Atendimento[]>(() => {
+    const mesas = new Map<string, Pedido[]>();
+    const outros: Pedido[] = [];
+
+    // Limite de 24h para não misturar a "Mesa 4" de hoje com a "Mesa 4" de ontem
+    const limite = new Date();
+    limite.setHours(limite.getHours() - 24);
+
+    pedidos.forEach((p) => {
+      if (p.status === "finalizado" && new Date(p.data) >= limite) {
+        if (p.mesa) {
+          let mesaNormalizada = String(p.mesa).trim();
+          if (/^\d+$/.test(mesaNormalizada)) {
+            mesaNormalizada = parseInt(mesaNormalizada, 10).toString();
+          }
+          if (!mesas.has(mesaNormalizada)) mesas.set(mesaNormalizada, []);
+          mesas.get(mesaNormalizada)!.push(p);
+        } else {
+          outros.push(p);
+        }
+      }
+    });
+
+    const listaMesas = Array.from(mesas.entries())
+      .map(([mesa, peds]) => ({
+        tipo: "mesa" as const,
+        id: `mesa-fin-${mesa}`,
+        titulo: `Mesa ${mesa} (Finalizada)`,
+        pedidos: peds,
+        total: peds.reduce((acc, p) => acc + p.total, 0),
+        data: peds[peds.length - 1].data, // Pega a data do ultimo pedido feito nela
+        origem: peds[0].origem,
+      }))
+      .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+
+    const listaOutros = outros
+      .map((p) => ({
+        tipo: "outro" as const,
+        id: `fin-${p.id}`,
+        titulo: `${p.cliente?.nome || p.origem} (Finalizado)`,
+        pedidos: [p],
+        total: p.total,
+        data: p.data,
+        origem: p.origem,
+      }))
+      .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+
+    return [...listaMesas, ...listaOutros];
+  }, [pedidos]);
+
+  // Modificado: O filtro de busca agora respeita a aba selecionada
   const atendimentosFiltrados = useMemo(() => {
-    if (!buscaMesa.trim()) return atendimentosAbertos;
-    return atendimentosAbertos.filter((a) =>
+    const listaBase = abaMesas === "abertas" ? atendimentosAbertos : atendimentosFinalizados;
+    if (!buscaMesa.trim()) return listaBase;
+
+    return listaBase.filter((a) =>
       a.titulo.toLowerCase().includes(buscaMesa.toLowerCase()),
     );
-  }, [atendimentosAbertos, buscaMesa]);
+  }, [atendimentosAbertos, atendimentosFinalizados, abaMesas, buscaMesa]);
 
-  const atendimentoAtual = atendimentosAbertos.find((a) => a.id === atendimentoSelecionado);
+  // Modificado: Procura o ID selecionado nas duas listas
+  const atendimentoAtual = useMemo(() => {
+    return atendimentosAbertos.find((a) => a.id === atendimentoSelecionado) ||
+      atendimentosFinalizados.find((a) => a.id === atendimentoSelecionado);
+  }, [atendimentosAbertos, atendimentosFinalizados, atendimentoSelecionado]);
+
+  // Booleano para esconder botoes caso a mesa esteja finalizada
+  const isAtendimentoFinalizado = atendimentoAtual?.pedidos.every(p => p.status === "finalizado");
+
 
   // ==================================================================================
   // COMUNICAÇÃO 100% TELA PRETA - Sem CSS, Sem Html, Feito pro seu `printer.js`
@@ -324,7 +417,7 @@ function CaixaPage() {
         }, { timeout: 8000 });
 
         setStatusImpressao(`Cupom impresso com sucesso!`);
-      } catch (error) {
+      } catch (error: any) {
         console.warn("Falha na ponte local:", error);
         setStatusImpressao("Erro na comunicação com a impressora.");
         setAlerta({
@@ -350,7 +443,6 @@ function CaixaPage() {
           });
 
           // Notificação de WhatsApp (Sem travar o sistema se der erro)
-          // Notificação de WhatsApp (Com Espiões de Rastreio)
           let telefoneCliente = p.telefone || p.cliente?.telefone;
 
           if (!telefoneCliente) {
@@ -360,40 +452,38 @@ function CaixaPage() {
             telefoneCliente = telefoneCliente.replace(/\D/g, ''); // Limpa traços e espaços
 
             if (telefoneCliente.length >= 10) {
-              if (!telefoneCliente.startsWith('55')) telefoneCliente = '55' + telefoneCliente;
+              const telefoneParaEnvio = telefoneCliente.startsWith('55') ? telefoneCliente : '55' + telefoneCliente;
 
               const nomeCliente = p.cliente?.nome || "Cliente";
               const mensagem = `Olá, ${nomeCliente}!\n\nSeu pedido *#${p.id.slice(0, 6).toUpperCase()}* acabou de ser *recebido e impresso* na cozinha da *Pizzaria 2 Irmãos*! 🍕👨‍🍳\n\nLogo começaremos o preparo. Agradecemos a preferência!`;
 
-              const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL;
-              const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME;
-              const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY;
-
-              // Espião 1: Chegou até aqui?
-              alert("Tentando enviar para o número: " + telefoneCliente);
+              const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL || "";
+              const instancia = import.meta.env.VITE_WHATSAPP_INSTANCE_NAME || "";
+              const apiKey = import.meta.env.VITE_WHATSAPP_API_KEY || "";
 
               const payload = {
-                number: telefoneCliente,
+                number: telefoneParaEnvio,
                 text: mensagem,
                 options: { delay: 1200, presence: "composing" }
               };
 
               const configAxios = { headers: { "apikey": apiKey, "Content-Type": "application/json" } };
 
-              axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios)
-                .then(() => console.log("✅ Mensagem enviada com sucesso!"))
-                .catch((erro) => {
-                  const motivo = erro.response?.data?.message || erro.message;
-                  alert("ERRO DA API: " + motivo);
-                });
+              axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios).then(() => {
+                console.log("✅ Mensagem enviada com sucesso!");
+                registrarLogWhatsApp(p.id, telefoneParaEnvio, mensagem, "sucesso");
+              }).catch((erro: any) => {
+                const motivo = erro.response?.data?.message || erro.message;
+                alert("ERRO DA API: " + motivo);
+                registrarLogWhatsApp(p.id, telefoneParaEnvio, mensagem, "erro", motivo);
+              });
             } else {
-              // Espião 2: O número é muito curto!
               alert("WhatsApp abortado: Telefone tem menos de 10 números (Faltou o DDD?). Número lido: " + telefoneCliente);
             }
           }
         }
         setPedidoComFalha(null);
-      } catch (error) {
+      } catch (error: any) {
         setPedidoComFalha(p);
         throw error;
       }
@@ -413,7 +503,7 @@ function CaixaPage() {
         if (pendente) {
           try {
             await imprimirPedido(pendente);
-          } catch (e) {
+          } catch (e: any) {
             temPendente = false; // Interrompe para proteger se a tela preta cair
           }
         } else {
@@ -425,7 +515,8 @@ function CaixaPage() {
     }
   }, [imprimirPedido]);
 
-  const finalizarAtendimento = async (atend: (typeof atendimentosAbertos)[0]) => {
+  // CORREÇÃO: Usando a tipagem Atendimento
+  const finalizarAtendimento = async (atend: Atendimento) => {
     try {
       for (const p of atend.pedidos) {
         await updateDoc(doc(db, "pedidos", p.id), { status: "finalizado" });
@@ -445,7 +536,8 @@ function CaixaPage() {
     }
   };
 
-  const imprimirConferencia = async (atend: (typeof atendimentosAbertos)[0]) => {
+  // CORREÇÃO: Usando a tipagem Atendimento
+  const imprimirConferencia = async (atend: Atendimento) => {
     const itensConsolidados = atend.pedidos.flatMap((p) => p.itens);
     const pedidoConferencia: Pedido = {
       id: `CONF-${atend.titulo.replace(/\s+/g, "-")}`,
@@ -587,7 +679,7 @@ function CaixaPage() {
     const novo = !lojaAberta;
     try {
       await setDoc(doc(db, "configuracoes", "loja"), { aberta: novo }, { merge: true });
-    } catch {
+    } catch (error: any) {
       setAlerta({
         titulo: "Erro",
         mensagem: "Erro de permissão no Firebase. Verifique as Regras.",
@@ -617,7 +709,7 @@ function CaixaPage() {
       const updateData = tipo === "caixa" ? { pinCaixa: pin } : { pinGarcom: pin };
       await setDoc(doc(db, "configuracoes", "seguranca"), updateData, { merge: true });
       mostrarMensagemFlutuante(`Senha do ${tipo === "caixa" ? "Caixa" : "Garçom"} alterada!`);
-    } catch {
+    } catch (error: any) {
       setAlerta({
         titulo: "Erro",
         mensagem: "Não foi possível salvar a senha na nuvem.",
@@ -630,7 +722,7 @@ function CaixaPage() {
     try {
       await setDoc(doc(db, "configuracoes", "loja"), { horarioFuncionamento }, { merge: true });
       mostrarMensagemFlutuante("Horário atualizado com sucesso!");
-    } catch {
+    } catch (error: any) {
       setAlerta({ titulo: "Erro", mensagem: "Não foi possível salvar o horário.", tipo: "erro" });
     }
   };
@@ -640,7 +732,7 @@ function CaixaPage() {
     try {
       await updateDoc(doc(db, "pedidos", pedidoParaCancelar), { status: "cancelado" });
       setPedidoParaCancelar(null);
-    } catch {
+    } catch (error: any) {
       setAlerta({
         titulo: "Erro",
         mensagem: "Não foi possível cancelar o pedido no sistema.",
@@ -724,18 +816,22 @@ function CaixaPage() {
       try {
         await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
         setAlerta({ titulo: "Sucesso", mensagem: "Cliente Notificado!", tipo: "sucesso" });
-      } catch (erroPrimeira) {
+        registrarLogWhatsApp(pedido.id, telefoneCliente, mensagem, "sucesso");
+      } catch (erroPrimeira: any) {
         console.warn("Falha na sincronização. Aguardando 2s...");
         await new Promise(resolve => setTimeout(resolve, 2000));
         try {
           await axios.post(`${whatsappUrl}/message/sendText/${instancia}`, payload, configAxios);
           setAlerta({ titulo: "Sucesso", mensagem: "Cliente Notificado!", tipo: "sucesso" });
+          registrarLogWhatsApp(pedido.id, telefoneCliente, mensagem, "sucesso");
         } catch (erroSegunda: any) {
+          const motivo = erroSegunda.response?.data?.message || "Não foi possível notificar o cliente.";
           setAlerta({
             titulo: "Erro WhatsApp",
-            mensagem: erroSegunda.response?.data?.message || "Não foi possível notificar o cliente.",
+            mensagem: motivo,
             tipo: "erro"
           });
+          registrarLogWhatsApp(pedido.id, telefoneCliente, mensagem, "erro", motivo);
         }
       }
 
@@ -759,7 +855,7 @@ function CaixaPage() {
       });
       setDraftPedidoEdicao(null);
       mostrarMensagemFlutuante("Pedido atualizado com sucesso!");
-    } catch {
+    } catch (error: any) {
       setAlerta({ titulo: "Erro", mensagem: "Erro ao atualizar o pedido.", tipo: "erro" });
     }
   };
@@ -790,7 +886,7 @@ function CaixaPage() {
         if (state === "open" || state === "connected") {
           isConnected = true;
         }
-      } catch (e) {
+      } catch (e: any) {
         console.log("Status não respondeu, assumindo que está desconectado...");
       }
 
@@ -835,7 +931,7 @@ function CaixaPage() {
         throw new Error("Demorou muito para gerar a imagem.");
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro QR Code:", error);
       setAlerta({
         titulo: "Aguarde um momento ⏳",
@@ -886,7 +982,7 @@ function CaixaPage() {
       novosOverrides[String(itemAtual.id)] = overrideAtual;
 
       await setDoc(doc(db, "configuracoes", "cardapio"), { overrides: novosOverrides }, { merge: true });
-    } catch {
+    } catch (error: any) {
       setAlerta({ titulo: "Erro", mensagem: "Não foi possível salvar a alteração.", tipo: "erro" });
     }
   };
@@ -975,10 +1071,26 @@ function CaixaPage() {
             />
           </div>
 
+          {/* NOVO: Botões para alternar entre Mesas Abertas e Finalizadas */}
+          <div className="flex bg-muted/20 p-1 mx-2 md:mx-3 mb-2 rounded-lg border border-border shadow-inner mt-2">
+            <button
+              onClick={() => { setAbaMesas("abertas"); setAtendimentoSelecionado(null); }}
+              className={`flex-1 text-[10px] md:text-xs font-black uppercase py-2 rounded-md transition-all ${abaMesas === "abertas" ? "bg-background shadow-sm text-primary border border-border/50" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Abertas
+            </button>
+            <button
+              onClick={() => { setAbaMesas("finalizadas"); setAtendimentoSelecionado(null); }}
+              className={`flex-1 text-[10px] md:text-xs font-black uppercase py-2 rounded-md transition-all ${abaMesas === "finalizadas" ? "bg-background shadow-sm text-primary border border-border/50" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Finalizadas
+            </button>
+          </div>
+
           <div className="flex-1 overflow-y-auto p-2 md:p-3 space-y-1.5 bg-muted/5">
             {atendimentosFiltrados.length === 0 && (
               <p className="text-center text-sm font-semibold text-muted-foreground p-4">
-                Nenhum atendimento aberto.
+                {abaMesas === "abertas" ? "Nenhum atendimento aberto." : "Nenhuma mesa finalizada hoje."}
               </p>
             )}
             {atendimentosFiltrados.map((a) => (
@@ -1035,7 +1147,7 @@ function CaixaPage() {
                   {atendimentoAtual.pedidos.map((p) => (
                     <div
                       key={p.id}
-                      className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden"
+                      className={`rounded-2xl border border-border bg-card shadow-sm overflow-hidden ${p.status === "finalizado" ? "opacity-80" : ""}`}
                     >
                       <div className="bg-muted/30 px-4 sm:px-5 py-3 border-b border-border flex justify-between items-center">
                         <div className="flex items-center gap-2 md:gap-3">
@@ -1049,15 +1161,18 @@ function CaixaPage() {
                                 ? "bg-blue-100 text-blue-700"
                                 : p.status === "pronto"
                                   ? "bg-green-100 text-green-700"
-                                  : p.impresso
-                                    ? "bg-cyan-100 text-cyan-800"
-                                    : "bg-orange-100 text-orange-700 animate-pulse ring-1 ring-orange-300"
+                                  : p.status === "finalizado"
+                                    ? "bg-zinc-200 text-zinc-600"
+                                    : p.impresso
+                                      ? "bg-cyan-100 text-cyan-800"
+                                      : "bg-orange-100 text-orange-700 animate-pulse ring-1 ring-orange-300"
                               }`}
                           >
                             {p.status === "em_preparo" ? "🍕 Em Preparo" :
                               p.status === "em_rota" ? "🛵 Em Rota" :
                                 p.status === "pronto" ? "🛍️ Pronto" :
-                                  p.impresso ? "✅ Recebido" : "⏳ Aguardando"}
+                                  p.status === "finalizado" ? "🔒 Finalizado" :
+                                    p.impresso ? "✅ Recebido" : "⏳ Aguardando"}
                           </span>
                         </div>
                         <div className="flex gap-1.5 md:gap-2">
@@ -1068,20 +1183,25 @@ function CaixaPage() {
                           >
                             <Printer size={16} />
                           </button>
-                          <button
-                            onClick={() => abrirModalEdicao(p)}
-                            className="h-8 w-8 md:h-9 md:w-9 flex items-center justify-center rounded-lg bg-blue-50 border border-blue-200 text-blue-600 shadow-sm hover:bg-blue-100"
-                            title="Editar"
-                          >
-                            <Edit3 size={16} />
-                          </button>
-                          <button
-                            onClick={() => setPedidoParaCancelar(p.id)}
-                            className="h-8 w-8 md:h-9 md:w-9 flex items-center justify-center rounded-lg bg-red-50 border border-red-200 text-red-600 shadow-sm hover:bg-red-100"
-                            title="Cancelar"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {/* Botões de Edição e Lixeira somem se a mesa já foi fechada */}
+                          {p.status !== "finalizado" && p.status !== "cancelado" && (
+                            <>
+                              <button
+                                onClick={() => abrirModalEdicao(p)}
+                                className="h-8 w-8 md:h-9 md:w-9 flex items-center justify-center rounded-lg bg-blue-50 border border-blue-200 text-blue-600 shadow-sm hover:bg-blue-100"
+                                title="Editar"
+                              >
+                                <Edit3 size={16} />
+                              </button>
+                              <button
+                                onClick={() => setPedidoParaCancelar(p.id)}
+                                className="h-8 w-8 md:h-9 md:w-9 flex items-center justify-center rounded-lg bg-red-50 border border-red-200 text-red-600 shadow-sm hover:bg-red-100"
+                                title="Cancelar"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                       <div className="p-4 sm:p-5">
@@ -1126,7 +1246,7 @@ function CaixaPage() {
                           </div>
                         )}
 
-                        {p.tipoEntrega && p.tipoEntrega !== "NO_LOCAL" && (
+                        {p.tipoEntrega && p.tipoEntrega !== "NO_LOCAL" && p.status !== "finalizado" && (
                           <div className="mt-4 pt-4 border-t border-border flex flex-wrap gap-2">
                             {(!p.status || p.status === "pendente") && (
                               <button
@@ -1166,25 +1286,29 @@ function CaixaPage() {
                 <div className="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-3">
                   <div>
                     <p className="text-[10px] md:text-xs font-black uppercase text-muted-foreground mb-0.5">
-                      Total a Pagar
+                      Total {isAtendimentoFinalizado ? "Pago" : "a Pagar"}
                     </p>
                     <p className="text-2xl sm:text-3xl font-black text-primary">
                       {formatCurrency(atendimentoAtual.total)}
                     </p>
                   </div>
                   <div className="flex gap-2 md:gap-3 w-full md:w-auto">
+                    {/* Botão de Conferência continua funcionando mesmo na mesa Finalizada */}
                     <button
                       onClick={() => imprimirConferencia(atendimentoAtual)}
                       className="flex-1 md:flex-none flex items-center justify-center gap-1.5 rounded-xl bg-secondary px-4 py-2.5 md:py-3 text-[10px] md:text-xs font-black uppercase text-secondary-foreground hover:bg-secondary/80 transition-all shadow-sm"
                     >
-                      <Printer size={18} /> Imprimir Conferência
+                      <Printer size={18} /> {isAtendimentoFinalizado ? "Reimprimir Conferência" : "Imprimir Conferência"}
                     </button>
-                    <button
-                      onClick={() => finalizarAtendimento(atendimentoAtual)}
-                      className="flex-1 md:flex-none flex items-center justify-center gap-1.5 rounded-xl bg-green-600 px-5 md:px-6 py-2.5 md:py-3 text-[10px] md:text-xs font-black uppercase text-white hover:bg-green-700 transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5"
-                    >
-                      <CheckCircle2 size={18} /> Finalizar & Liberar
-                    </button>
+                    {/* Botão de Finalizar some se a mesa já foi fechada */}
+                    {!isAtendimentoFinalizado && (
+                      <button
+                        onClick={() => finalizarAtendimento(atendimentoAtual)}
+                        className="flex-1 md:flex-none flex items-center justify-center gap-1.5 rounded-xl bg-green-600 px-5 md:px-6 py-2.5 md:py-3 text-[10px] md:text-xs font-black uppercase text-white hover:bg-green-700 transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5"
+                      >
+                        <CheckCircle2 size={18} /> Finalizar & Liberar
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1513,20 +1637,22 @@ function CaixaPage() {
                         </div>
                       </div>
                     </div>
+                  </div>
+                )}
 
-                    <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8">
-                      <div className="flex flex-col md:flex-row gap-8 items-start">
-                        <div className="flex-1 space-y-6 w-full md:max-w-sm">
-                          <div className="flex items-center gap-3 mb-2">
-                            <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-600">
-                              <Edit3 size={24} />
-                            </div>
-                            <h3 className="text-xl sm:text-2xl font-black text-foreground">Edição de Cardápio</h3>
+                {abaConfig === "cardapio" && (
+                  <div className="bg-card border border-border rounded-xl shadow-sm p-6 sm:p-8 mt-4 mx-auto max-w-4xl">
+                    <div className="flex flex-col md:flex-row gap-8 items-start">
+                      <div className="flex-1 space-y-6 w-full md:max-w-sm">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-600">
+                            <Edit3 size={24} />
                           </div>
-                          <p className="text-sm font-semibold text-muted-foreground">
-                            Altere preços e a descrição/ingredientes dos produtos. As atualizações refletem imediatamente no catálogo do cliente e no app do garçom.
-                          </p>
+                          <h3 className="text-xl sm:text-2xl font-black text-foreground">Edição de Cardápio</h3>
                         </div>
+                        <p className="text-sm font-semibold text-muted-foreground">
+                          Altere preços e a descrição/ingredientes dos produtos. As atualizações refletem imediatamente no catálogo do cliente e no app do garçom.
+                        </p>
 
                         <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-xl">
                           <h4 className="flex items-center gap-2 text-emerald-800 font-bold text-sm mb-2">
@@ -1538,42 +1664,42 @@ function CaixaPage() {
                             <li>Atualize o valor ou a descrição e salve. Todos os menus conectados serão atualizados na hora.</li>
                           </ul>
                         </div>
+                      </div>
 
-                        <div className="flex-1 w-full bg-muted/30 border border-border rounded-xl p-5">
-                          <div className="flex gap-2 overflow-x-auto pb-3 mb-3 border-b border-border scrollbar-hide">
-                            {(["pizzas", "pasteis", "porcoes", "bebidas", "sucos"] as const).map((t) => (
-                              <button
-                                key={t}
-                                onClick={() => setCategoriaConfig(t)}
-                                className={`flex-shrink-0 px-4 py-2 text-xs font-black rounded-lg capitalize transition-all border ${categoriaConfig === t ? "bg-primary border-primary text-white shadow-sm" : "bg-card border-border text-muted-foreground hover:bg-muted"}`}
-                              >
-                                {t}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="max-h-[350px] overflow-y-auto space-y-2 pr-2">
-                            {itensMenuDaCategoria.map(item => {
-                              const override = menuOverrides[String(item.id)] || {};
-                              return (
-                                <div key={item.id} className="flex justify-between items-center p-3 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors shadow-sm">
-                                  <div className="flex-1 pr-3">
-                                    <p className="text-sm font-black text-foreground break-words">
-                                      {item.name}
-                                    </p>
-                                    <p className="text-[10px] font-semibold text-muted-foreground line-clamp-1 mt-0.5 break-words">
-                                      {override.ingredientes !== undefined ? override.ingredientes : (item.description || item.descricao || item.ingredientes || "Sem descrição")}
-                                    </p>
-                                  </div>
-                                  <button
-                                    onClick={() => abrirModalEdicaoItem(item)}
-                                    className="h-8 px-3 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 text-xs font-black uppercase hover:bg-blue-100 shrink-0 transition-colors"
-                                  >
-                                    Editar
-                                  </button>
+                      <div className="flex-1 w-full bg-muted/30 border border-border rounded-xl p-5">
+                        <div className="flex gap-2 overflow-x-auto pb-3 mb-3 border-b border-border scrollbar-hide">
+                          {(["pizzas", "pasteis", "porcoes", "bebidas", "sucos"] as const).map((t) => (
+                            <button
+                              key={t}
+                              onClick={() => setCategoriaConfig(t)}
+                              className={`flex-shrink-0 px-4 py-2 text-xs font-black rounded-lg capitalize transition-all border ${categoriaConfig === t ? "bg-primary border-primary text-white shadow-sm" : "bg-card border-border text-muted-foreground hover:bg-muted"}`}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="max-h-[350px] overflow-y-auto space-y-2 pr-2">
+                          {itensMenuDaCategoria.map(item => {
+                            const override = menuOverrides[String(item.id)] || {};
+                            return (
+                              <div key={item.id} className="flex justify-between items-center p-3 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors shadow-sm">
+                                <div className="flex-1 pr-3">
+                                  <p className="text-sm font-black text-foreground break-words">
+                                    {item.name}
+                                  </p>
+                                  <p className="text-[10px] font-semibold text-muted-foreground line-clamp-1 mt-0.5 break-words">
+                                    {override.ingredientes !== undefined ? override.ingredientes : (item.description || item.descricao || item.ingredientes || "Sem descrição")}
+                                  </p>
                                 </div>
-                              )
-                            })}
-                          </div>
+                                <button
+                                  onClick={() => abrirModalEdicaoItem(item)}
+                                  className="h-8 px-3 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 text-xs font-black uppercase hover:bg-blue-100 shrink-0 transition-colors"
+                                >
+                                  Editar
+                                </button>
+                              </div>
+                            )
+                          })}
                         </div>
                       </div>
                     </div>
