@@ -1,92 +1,101 @@
-# 🍕 Pizzaria 2 Irmãos - Sistema de PDV e Catálogo Digital
+🍕 Pizzaria 2 Irmãos - Sistema de PDV e Catálogo Digital
+Um sistema completo, responsivo e inteligente de Ponto de Venda (PDV), gestão de mesas e catálogo digital, desenvolvido especialmente para automatizar e escalar as operações diárias de uma pizzaria.
 
-Um sistema completo e responsivo de Ponto de Venda (PDV), gestão de mesas e catálogo digital, desenvolvido especialmente para atender as necessidades diárias de uma pizzaria.
-
-## 🚀 Funcionalidades
-
+🚀 Funcionalidades
 O sistema é dividido em três módulos principais para atender a diferentes fluxos do restaurante:
 
-### 1. Painel do Caixa (PDV)
-- **Gestão de Pedidos:** Visualização em tempo real de novos pedidos, sejam eles de mesas ou delivery.
-- **Dashboard Financeiro:** Acompanhamento de faturamento diário/semanal/mensal, quantidade de pedidos e ticket médio.
-- **Impressão Térmica Automática:** Integração com uma ponte local (`localhost:3333`) para impressão direta de cupons térmicos (cozinha e conferência) sem caixas de diálogo do navegador.
-- **Controle de Estoque:** Bloqueio e desbloqueio em tempo real de itens do cardápio (pizzas, bebidas, etc.) marcando-os como "Esgotados".
-- **Segurança:** Acesso protegido por PIN (Senhas) com tela de bloqueio e animações nativas.
-- **Configurações da Loja:** Gerenciamento do horário de funcionamento e status de "Loja Aberta/Fechada".
+1. Painel do Caixa (PDV)
+Gestão de Pedidos: Visualização em tempo real de novos pedidos, sejam eles de mesas ou delivery (WhatsApp/Catálogo).
 
-### 2. Comanda Eletrônica (Garçom)
-- **Acesso Restrito:** Acesso mediante PIN exclusivo para a equipe de salão.
-- **Gestão de Mesas:** Abertura de comandas vinculadas ao número da mesa e nome do garçom.
-- **Pizza Meia a Meia:** Lógica customizada para pedidos de pizzas com dois sabores, assumindo automaticamente o valor do sabor mais caro.
-- **Observações:** Inserção de notas no pedido (ex: "Sem cebola").
-- **Sincronização:** Envio direto para a tela do caixa e impressora da cozinha.
+Integração Automatizada com WhatsApp (Evolution API): Envio automático de mensagens para o cliente a cada mudança de status ("Em preparo", "Saiu para entrega", "Pronto para retirada"). O painel possui um gerenciador embutido para ler o QR Code e verificar o status da conexão sem precisar abrir abas externas.
 
-### 3. Catálogo Digital (Cliente)
-- **Cardápio Online:** Interface amigável para o cliente navegar pelos produtos, com indicação de itens esgotados.
-- **Carrinho de Compras:** Gestão do carrinho com cálculo de subtotal, taxas de entrega e total.
-- **Integração com WhatsApp:** Envio do pedido formatado diretamente para o WhatsApp do caixa, incluindo comprovantes de PIX.
-- **Opções de Entrega e Pagamento:** Suporte para Retirada, Consumo no Local e Delivery (com taxa), além de PIX, Cartão de Crédito e Débito.
+Gestão Inteligente de Mesas: Separação entre mesas abertas e histórico de mesas finalizadas. O sistema agrupa as comandas finalizadas de forma inteligente baseada na sessão (hora de abertura e fechamento), permitindo reimprimir a conferência completa exata de clientes anteriores, mesmo que a mesa tenha rodado várias vezes na noite.
 
----
+Edição Expressa de Cardápio: Ferramenta para alterar preços e ingredientes/descrições de produtos diretamente na tela do Caixa. As mudanças refletem instantaneamente no tablet dos garçons e no celular dos clientes.
 
-## 💻 Tecnologias e Ferramentas
+Dashboard Financeiro: Acompanhamento de faturamento diário/semanal/mensal, quantidade de pedidos, ticket médio e Top 5 de itens mais vendidos.
 
-- **React (v19) + TypeScript:** Base da aplicação para interfaces dinâmicas, tipadas e reativas.
-- **Tailwind CSS:** Estilização utilitária focada em responsividade (Mobile First e layouts fluidos para PDV).
-- **Vite:** Bundler super rápido para desenvolvimento e build.
-- **Firebase Firestore:** Banco de dados NoSQL em tempo real, garantindo que caixas, garçons e clientes vejam dados atualizados instantaneamente.
-- **TanStack Router:** Roteamento moderno e seguro para as trocas de telas.
-- **Lucide React:** Biblioteca de ícones elegantes e consistentes.
+Controle de Estoque em Tempo Real: Bloqueio e desbloqueio de itens do cardápio marcando-os como "Esgotados" com apenas um clique.
 
----
+Segurança e Log: Acesso protegido por senhas numéricas (PIN) independentes para Caixa e Garçons, além de logs invisíveis no Firebase (historico_whatsapp) para auditoria de mensagens enviadas.
 
-## ⚙️ Como Rodar o Projeto (Desenvolvimento)
+2. Comanda Eletrônica (Garçom)
+Acesso Restrito: Autenticação rápida por PIN exclusivo para a equipe de salão.
 
-### Pré-requisitos
-- Node.js instalado (versão 18+ recomendada).
-- Uma conta no Firebase com um projeto e Firestore configurados.
+Gestão de Mesas: Abertura de comandas vinculadas ao número da mesa e lançamento rápido de itens.
 
-### Instalação
+Pizza Meia a Meia: Lógica customizada para pedidos de pizzas com dois sabores, assumindo automaticamente o valor do sabor mais caro.
 
-1. Clone o repositório:
-   ```bash
-   git clone https://github.com/seu-usuario/pizzaria-2-irmaos.git
-   cd pizzaria-2-irmaos
-   ```
+Observações: Inserção de notas no pedido para a cozinha (ex: "Sem cebola", "Borda recheada").
 
-2. Instale as dependências:
-   ```bash
-   npm install
-   ```
+Sincronização Imediata: Os pedidos caem na mesma hora na tela do Caixa e já são disparados para a impressora da cozinha.
 
-3. Configure as variáveis de ambiente:
-   - Crie um arquivo `.env` na raiz do projeto.
-   - Adicione as chaves do seu projeto Firebase de acordo com o `firebase.ts`.
+3. Catálogo Digital (Cliente)
+Cardápio Online Vivo: Interface amigável para o cliente navegar pelos produtos. Esgotamentos ou mudanças de preço feitas no Caixa são atualizadas ao vivo na tela do cliente.
 
-4. Inicie o servidor de desenvolvimento:
-   ```bash
-   npm run dev
-   ```
-   O projeto estará disponível em `http://localhost:5173`.
+Carrinho Dinâmico: Gestão inteligente com cálculo de subtotal, taxas de entrega e valor total.
 
----
+Integração com WhatsApp: Envio do pedido perfeitamente formatado para o número oficial da pizzaria, facilitando a confirmação e envio de comprovantes PIX.
 
-## 🖨️ Integração com Impressora Térmica
+Opções de Entrega e Pagamento: Suporte para Retirada, Consumo no Local e Delivery (com taxa), além das formas de pagamento da loja.
 
-O sistema foi desenhado para contornar a limitação de impressão padrão dos navegadores (que abrem a janela de pré-visualização). 
+💻 Tecnologias e Ferramentas
+React (v19) + TypeScript: Base da aplicação para interfaces dinâmicas, tipadas e reativas.
 
-Ele faz requisições `POST` para `http://localhost:3001/imprimir` (também aceita `POST /print` para texto pronto). Para que isso funcione no ambiente de produção/caixa, é necessário rodar a ponte local com `npm run print:bridge`, recebendo esse JSON e enviando o cupom direto para a impressora térmica do Windows.
+Tailwind CSS: Estilização utilitária focada em responsividade (Mobile First e layouts fluidos para PDV).
 
-*(Nota: Caso a ponte local esteja offline, o sistema possui um fallback elegante que abre o painel de impressão nativo do navegador).*
+Vite: Bundler super rápido para desenvolvimento e build.
 
----
+Firebase Firestore: Banco de dados NoSQL em tempo real, garantindo que caixas, garçons e clientes vejam dados atualizados simultaneamente.
 
-## 🛡️ Segurança
+Evolution API + Axios: Comunicação back-end robusta para disparos e gerenciamento de sessões do WhatsApp Business.
 
-O sistema conta com controle de acesso restrito por PIN para as operações de Caixa e Garçom. 
-Para o primeiro acesso (antes da configuração no Firebase), consulte o administrador do sistema para obter as credenciais de acesso iniciais.
+TanStack Router: Roteamento moderno e seguro para as trocas de telas.
 
-*(É altamente recomendado alterar as senhas provisórias na aba "Configurações > Senhas" logo no primeiro login por questões de segurança).*
+Lucide React: Biblioteca de ícones elegantes e consistentes.
 
----
-*Desenvolvido com ❤️ para modernizar o atendimento de pizzarias.*
+⚙️ Como Rodar o Projeto (Desenvolvimento)
+Pré-requisitos
+
+Node.js instalado (versão 18+ recomendada).
+
+Conta no Firebase com Firestore Database configurado.
+
+Instância da Evolution API rodando (Local ou VPS).
+
+Instalação
+
+Clone o repositório:
+
+Bash
+git clone https://github.com/seu-usuario/pizzaria-2-irmaos.git
+cd pizzaria-2-irmaos
+Instale as dependências:
+
+Bash
+npm install
+Configure as variáveis de ambiente (.env):
+
+Crie o arquivo .env na raiz do projeto.
+
+Adicione as chaves do Firebase, URLs da Impressora (VITE_IMPRESSORA_URL) e credenciais da Evolution API (VITE_WHATSAPP_API_URL, INSTANCE_NAME, e API_KEY).
+
+Inicie o servidor:
+
+Bash
+npm run dev
+O projeto estará disponível em http://localhost:5173.
+
+🖨️ Integração com Impressora Térmica e Backend Node
+O sistema foi desenhado para contornar a limitação de impressão silenciosa dos navegadores.
+Ele realiza requisições POST para a ponte local (ex: http://localhost:3001/imprimir) contendo o objeto JSON do pedido estruturado.
+Para o funcionamento ideal no Caixa, é necessário rodar o motor local em Node.js (server.js ou printer.js) configurado com cors e com a biblioteca node-thermal-printer, que repassa o papel formatado diretamente para a impressora EPSON (ou genérica) no Windows.
+
+O front-end conta com tratamento inteligente de Timeout, evitando o congelamento da tela (Impressora Offline) caso o spooler do Windows atrase o processamento de muitas comandas sequenciais.
+
+🛡️ Segurança e Banco de Dados
+Controle de Acesso: Áreas vitais bloqueadas via PIN (PinLock). Recomenda-se a alteração das senhas padrões diretamente na aba de Configurações do PDV no primeiro acesso.
+
+Regras do Firestore: O sistema exige configurações de segurança (firestore.rules) para proteger a integridade dos pedidos, permitir a edição em tempo real das configuracoes de loja/cardápio, e criar registros de logs silenciosos (historico_whatsapp) imutáveis.
+
+Desenvolvido com ❤️ e muita tecnologia para modernizar e escalar o atendimento de pizzarias reais.
