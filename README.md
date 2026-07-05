@@ -98,4 +98,4 @@ Controle de Acesso: Áreas vitais bloqueadas via PIN (PinLock). Recomenda-se a a
 
 Regras do Firestore: O sistema exige configurações de segurança (firestore.rules) para proteger a integridade dos pedidos, permitir a edição em tempo real das configuracoes de loja/cardápio, e criar registros de logs silenciosos (historico_whatsapp) imutáveis.
 
-Desenvolvido com ❤️ e muita tecnologia para modernizar e escalar o atendimento de pizzarias reais.
+Desenvolvido com ❤️ e muita tecnologia para modernizar e escalar o atendimento de pizzarias reais.lar o atendimento de pizzarias reais.
