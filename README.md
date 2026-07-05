@@ -1,70 +1,78 @@
-🍕 Pizzaria 2 Irmãos - Sistema de PDV e Catálogo Digital
-Um sistema completo, responsivo e inteligente de Ponto de Venda (PDV), gestão de mesas e catálogo digital, desenvolvido especialmente para automatizar e escalar as operações diárias de uma pizzaria.
+🚀 Arquitetura e Módulos do Sistema
+A aplicação foi desenhada em três frentes simultâneas, conectadas em tempo real via arquitetura Serverless (Firebase):
 
-🚀 Funcionalidades
-O sistema é dividido em três módulos principais para atender a diferentes fluxos do restaurante:
+1. 💻 Painel do Caixa (PDV)
+O hub central da operação. Focado em agilidade máxima e redução de cliques.
 
-1. Painel do Caixa (PDV)
-Gestão de Pedidos: Visualização em tempo real de novos pedidos, sejam eles de mesas ou delivery (WhatsApp/Catálogo).
+Gestão de Pedidos Omnichannel: Recepção instantânea de comandas (salão) e delivery (catálogo digital).
 
-Integração Automatizada com WhatsApp (Evolution API): Envio automático de mensagens para o cliente a cada mudança de status ("Em preparo", "Saiu para entrega", "Pronto para retirada"). O painel possui um gerenciador embutido para ler o QR Code e verificar o status da conexão sem precisar abrir abas externas.
+Integração Nativa com WhatsApp (Evolution API): Automação de status. Quando o caixa avança o pedido para "Em preparo" ou "Saiu para entrega", o cliente é notificado automaticamente. Inclui gerenciamento de sessão/QR Code nativo na interface.
 
-Gestão Inteligente de Mesas: Separação entre mesas abertas e histórico de mesas finalizadas. O sistema agrupa as comandas finalizadas de forma inteligente baseada na sessão (hora de abertura e fechamento), permitindo reimprimir a conferência completa exata de clientes anteriores, mesmo que a mesa tenha rodado várias vezes na noite.
+Gestão Inteligente de Sessões (Mesas): Algoritmo que agrupa e separa o histórico de consumo de uma mesma mesa baseado no timestamp de abertura e fechamento, gerando documentos financeiros isolados para auditoria e reimpressão térmica.
 
-Edição Expressa de Cardápio: Ferramenta para alterar preços e ingredientes/descrições de produtos diretamente na tela do Caixa. As mudanças refletem instantaneamente no tablet dos garçons e no celular dos clientes.
+Edição de Cardápio e Estoque em Tempo Real: Painel CRUD para alteração de preços, ingredientes e toggle rápido de "Produto Esgotado". As mutações refletem em milissegundos nos terminais dos garçons e no smartphone dos clientes em casa.
 
-Dashboard Financeiro: Acompanhamento de faturamento diário/semanal/mensal, quantidade de pedidos, ticket médio e Top 5 de itens mais vendidos.
+Dashboard Financeiro & Analytics: Indicadores de performance com cálculo de faturamento (diário/semanal/mensal), ticket médio e ranking de produtos mais vendidos.
 
-Controle de Estoque em Tempo Real: Bloqueio e desbloqueio de itens do cardápio marcando-os como "Esgotados" com apenas um clique.
+2. 📱 Comanda Eletrônica (Terminal Garçom)
+Interface Mobile-First otimizada para uso em movimento no salão.
 
-Segurança e Log: Acesso protegido por senhas numéricas (PIN) independentes para Caixa e Garçons, além de logs invisíveis no Firebase (historico_whatsapp) para auditoria de mensagens enviadas.
+Autenticação Rápida: Login numérico via PinLock.
 
-2. Comanda Eletrônica (Garçom)
-Acesso Restrito: Autenticação rápida por PIN exclusivo para a equipe de salão.
+Roteamento Ágil de Pedidos: Abertura de comandas com vinculação de operador e mesa.
 
-Gestão de Mesas: Abertura de comandas vinculadas ao número da mesa e lançamento rápido de itens.
+Lógica Fracionada (Meia a Meia): Algoritmo que calcula automaticamente o valor do produto assumindo o preço do sabor mais caro (regra padrão de pizzarias).
 
-Pizza Meia a Meia: Lógica customizada para pedidos de pizzas com dois sabores, assumindo automaticamente o valor do sabor mais caro.
+Sync Cozinha-Salão: Envio imediato da comanda para a fila do caixa e spooler da impressora da cozinha.
 
-Observações: Inserção de notas no pedido para a cozinha (ex: "Sem cebola", "Borda recheada").
+3. 🛒 Catálogo Digital (Cliente Final)
+A vitrine virtual para autoatendimento remoto.
 
-Sincronização Imediata: Os pedidos caem na mesma hora na tela do Caixa e já são disparados para a impressora da cozinha.
+Cardápio Reativo: Oculta produtos esgotados dinamicamente com base nas regras do Caixa.
 
-3. Catálogo Digital (Cliente)
-Cardápio Online Vivo: Interface amigável para o cliente navegar pelos produtos. Esgotamentos ou mudanças de preço feitas no Caixa são atualizadas ao vivo na tela do cliente.
+Smart Cart: Carrinho com cálculo automatizado de subtotal e taxa de entrega variável.
 
-Carrinho Dinâmico: Gestão inteligente com cálculo de subtotal, taxas de entrega e valor total.
+Checkout via WhatsApp: Montagem de um payload de texto sanitizado e envio direto para o número oficial da loja, facilitando o fluxo de envio de comprovantes PIX.
 
-Integração com WhatsApp: Envio do pedido perfeitamente formatado para o número oficial da pizzaria, facilitando a confirmação e envio de comprovantes PIX.
+🛠️ Tecnologias Utilizadas
+Front-end
 
-Opções de Entrega e Pagamento: Suporte para Retirada, Consumo no Local e Delivery (com taxa), além das formas de pagamento da loja.
+React (v19) + TypeScript: Componentização reativa e tipagem estática rigorosa.
 
-💻 Tecnologias e Ferramentas
-React (v19) + TypeScript: Base da aplicação para interfaces dinâmicas, tipadas e reativas.
+Vite: Bundler de alta performance.
 
-Tailwind CSS: Estilização utilitária focada em responsividade (Mobile First e layouts fluidos para PDV).
+Tailwind CSS: Estilização utilitária e responsiva.
 
-Vite: Bundler super rápido para desenvolvimento e build.
+TanStack Router: Gerenciamento moderno e seguro de rotas baseadas em arquivos.
 
-Firebase Firestore: Banco de dados NoSQL em tempo real, garantindo que caixas, garçons e clientes vejam dados atualizados simultaneamente.
+Lucide React: Iconografia vetorizada.
 
-Evolution API + Axios: Comunicação back-end robusta para disparos e gerenciamento de sessões do WhatsApp Business.
+Back-end, Dados & Integrações
 
-TanStack Router: Roteamento moderno e seguro para as trocas de telas.
+Firebase (Firestore): Banco de dados NoSQL em tempo real.
 
-Lucide React: Biblioteca de ícones elegantes e consistentes.
+Evolution API + Axios: Comunicação back-end robusta para disparos do WhatsApp Business.
 
-⚙️ Como Rodar o Projeto (Desenvolvimento)
+Node.js (Hardware Bridge): Microserviço local utilizando a biblioteca node-thermal-printer e CORS para bypass das caixas de diálogo nativas dos navegadores, imprimindo cupons térmicos (EPSON/Genéricas) de forma silenciosa via protocolo ESC/POS.
+
+🛡️ Segurança e Banco de Dados
+Regras de Firestore (Security Rules): Proteção rigorosa contra Injeção/Mutação de dados.
+
+Clientes podem apenas inserir novos pedidos. Exclusão direta (delete) é bloqueada a nível de banco.
+
+Logs de auditoria (historico_whatsapp) são imutáveis (apenas operações de criação e leitura permitidas).
+
+Controle de Acesso Front-end: Áreas gerenciais (/caixa e /garcom) são envelopadas por um componente de bloqueio em tela (PinLock), mitigando operações indevidas no salão.
+
+⚙️ Como Executar o Projeto (Desenvolvimento)
 Pré-requisitos
+Node.js (v18+)
 
-Node.js instalado (versão 18+ recomendada).
+Projeto Firebase configurado (com Firestore Ativado)
 
-Conta no Firebase com Firestore Database configurado.
+Acesso a uma instância da Evolution API (VPS ou Localhost)
 
-Instância da Evolution API rodando (Local ou VPS).
-
-Instalação
-
+Passos de Instalação
 Clone o repositório:
 
 Bash
@@ -74,28 +82,33 @@ Instale as dependências:
 
 Bash
 npm install
-Configure as variáveis de ambiente (.env):
+Configure as Variáveis de Ambiente:
+Crie um arquivo .env na raiz do projeto contendo as chaves de acesso:
 
-Crie o arquivo .env na raiz do projeto.
+Snippet de código
+# Firebase
+VITE_FIREBASE_API_KEY=sua_api_key
+VITE_FIREBASE_AUTH_DOMAIN=seu_auth_domain
+VITE_FIREBASE_PROJECT_ID=seu_project_id
+VITE_FIREBASE_STORAGE_BUCKET=seu_storage_bucket
+VITE_FIREBASE_MESSAGING_SENDER_ID=seu_sender_id
+VITE_FIREBASE_APP_ID=seu_app_id
 
-Adicione as chaves do Firebase, URLs da Impressora (VITE_IMPRESSORA_URL) e credenciais da Evolution API (VITE_WHATSAPP_API_URL, INSTANCE_NAME, e API_KEY).
+# Motor de Impressão Local (Node.js)
+VITE_IMPRESSORA_URL=http://localhost:3001
 
-Inicie o servidor:
+# Automação WhatsApp (Evolution API)
+VITE_WHATSAPP_API_URL=sua_url_da_api
+VITE_WHATSAPP_INSTANCE_NAME=nome_da_instancia
+VITE_WHATSAPP_API_KEY=sua_apikey_global
+Inicie o servidor de desenvolvimento:
 
 Bash
 npm run dev
-O projeto estará disponível em http://localhost:5173.
+O sistema estará acessível em http://localhost:5173.
 
-🖨️ Integração com Impressora Térmica e Backend Node
-O sistema foi desenhado para contornar a limitação de impressão silenciosa dos navegadores.
-Ele realiza requisições POST para a ponte local (ex: http://localhost:3001/imprimir) contendo o objeto JSON do pedido estruturado.
-Para o funcionamento ideal no Caixa, é necessário rodar o motor local em Node.js (server.js ou printer.js) configurado com cors e com a biblioteca node-thermal-printer, que repassa o papel formatado diretamente para a impressora EPSON (ou genérica) no Windows.
+🖨️ Sobre o Motor de Impressão (Fallback & Timeout)
+Para garantir que o fluxo de caixa não congele durante o spooling de impressão no Windows (cenário comum em horários de pico com múltiplas vias de comanda), o Front-end envia um JSON estruturado para a ponte Node.js e aguarda um retorno condicionado a um Timeout adaptativo (20 segundos).
+Caso a ponte local seja desligada, o sistema aplica um fallback gracefully, chamando o modal de impressão nativo do navegador window.print() estritamente formatado via CSS @media print para bobinas de 58mm/80mm.
 
-O front-end conta com tratamento inteligente de Timeout, evitando o congelamento da tela (Impressora Offline) caso o spooler do Windows atrase o processamento de muitas comandas sequenciais.
-
-🛡️ Segurança e Banco de Dados
-Controle de Acesso: Áreas vitais bloqueadas via PIN (PinLock). Recomenda-se a alteração das senhas padrões diretamente na aba de Configurações do PDV no primeiro acesso.
-
-Regras do Firestore: O sistema exige configurações de segurança (firestore.rules) para proteger a integridade dos pedidos, permitir a edição em tempo real das configuracoes de loja/cardápio, e criar registros de logs silenciosos (historico_whatsapp) imutáveis.
-
-Desenvolvido com ❤️ e muita tecnologia para modernizar e escalar o atendimento de pizzarias reais.lar o atendimento de pizzarias reais.
+Desenvolvido com dedicação para modernizar e resolver problemas reais do varejo alimentício. 🚀
