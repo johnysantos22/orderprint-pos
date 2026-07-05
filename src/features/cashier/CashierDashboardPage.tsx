@@ -342,7 +342,7 @@ function CaixaPage() {
   // ==================================================================================
   const imprimirCupom = useCallback(
     async (pedido: Pedido, opcoes: ImprimirCupomOptions = {}) => {
-      const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL || "http://localhost:3001";
+      const impressoraUrl = import.meta.env.VITE_IMPRESSORA_URL;
       const conferencia = opcoes.tipoCupom === "conferencia";
 
       const removerAcentos = (str: string) => {
