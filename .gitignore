@@ -31,3 +31,8 @@ dist-ssr
 *.sln
 *.sw?
 evolution-api/
+
+# Variaveis de Ambiente (Senhas e APIs)
+.env
+.env.*
+!.env.example
