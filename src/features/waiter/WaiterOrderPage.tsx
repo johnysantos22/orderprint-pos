@@ -215,7 +215,8 @@ function GarcomPage() {
       const mesas = new Set<string>();
       snap.forEach((d) => {
         const p = d.data() as PedidoMesa;
-        if (p.status !== "cancelado" && p.status !== "finalizado" && p.mesa) {
+        // Ignora "BALCÃO" para não criar mesa fantasma
+        if (p.status !== "cancelado" && p.status !== "finalizado" && p.mesa && p.mesa !== "BALCÃO") {
           let mesaNormalizada = String(p.mesa).trim();
           if (/^\d+$/.test(mesaNormalizada)) {
             mesaNormalizada = parseInt(mesaNormalizada, 10).toString();
@@ -228,11 +229,14 @@ function GarcomPage() {
     return () => unsubscribePedidos();
   }, []);
 
+  // 👇 NOVA REGRA PARA BALCÃO 👇
+  const isBalcao = pedido.numeroMesa === "BALCÃO";
+
   let mesaInputNormalizada = pedido.numeroMesa.trim();
-  if (/^\d+$/.test(mesaInputNormalizada)) {
+  if (!isBalcao && /^\d+$/.test(mesaInputNormalizada)) {
     mesaInputNormalizada = parseInt(mesaInputNormalizada, 10).toString();
   }
-  const isMesaAberta = mesasAbertas.includes(mesaInputNormalizada);
+  const isMesaAberta = !isBalcao && mesasAbertas.includes(mesaInputNormalizada);
 
   const avisarItemAdicionado = (nomeItem: string) => {
     setMensagemCarrinho(`${nomeItem} adicionado à mesa.`);
@@ -396,7 +400,7 @@ function GarcomPage() {
       mesaFinal = parseInt(mesaFinal, 10).toString();
     }
 
-    let origemPedido = `MESA ${mesaFinal}`;
+    let origemPedido = isBalcao ? "BALCÃO" : `MESA ${mesaFinal}`;
     if (isMesaAberta) {
       origemPedido = tipoComplemento === "acrescimo"
         ? `ACRÉSCIMO - MESA ${mesaFinal}`
@@ -445,7 +449,7 @@ function GarcomPage() {
       <div className="flex shrink-0 items-center justify-between gap-3 bg-primary px-5 py-4 text-primary-foreground">
         <h2 className="flex items-center gap-2 text-lg font-black uppercase">
           <ShoppingCart size={22} aria-hidden="true" />
-          Mesa {pedido.numeroMesa || "--"}
+          {isBalcao ? "Balcão" : `Mesa ${pedido.numeroMesa || "--"}`}
         </h2>
         <div className="flex items-center gap-3">
           <strong>{formatCurrency(total)}</strong>
@@ -690,21 +694,41 @@ function GarcomPage() {
                 />
               </label>
 
-              <label className="flex-1 space-y-2">
+
+              <div className="flex-1 space-y-2">
                 <span className="text-[10px] md:text-xs font-black uppercase text-muted-foreground">Número da Mesa</span>
-                <input
-                  value={pedido.numeroMesa}
-                  onChange={(event) =>
-                    setPedido((estadoAtual) => ({
-                      ...estadoAtual,
-                      numeroMesa: event.target.value.replace(/\D/g, ""),
-                    }))
-                  }
-                  inputMode="numeric"
-                  className="h-12 w-full rounded-xl border-2 border-primary/50 bg-background px-4 text-center text-xl font-black outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/20 shadow-inner"
-                  placeholder="00"
-                />
-              </label>
+                <div className="flex gap-2">
+                  <input
+                    value={isBalcao ? "" : pedido.numeroMesa}
+                    onChange={(event) =>
+                      setPedido((estadoAtual) => ({
+                        ...estadoAtual,
+                        numeroMesa: event.target.value.replace(/\D/g, ""),
+                      }))
+                    }
+                    disabled={isBalcao}
+                    inputMode="numeric"
+                    className="h-12 w-full rounded-xl border-2 border-primary/50 bg-background px-4 text-center text-xl font-black outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/20 shadow-inner disabled:opacity-50 disabled:bg-muted"
+                    placeholder={isBalcao ? "BALCÃO" : "00"}
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPedido((estadoAtual) => ({
+                        ...estadoAtual,
+                        numeroMesa: isBalcao ? "" : "BALCÃO",
+                      }))
+                    }
+                    className={`h-12 px-4 rounded-xl text-xs font-black uppercase transition-all border-2 ${isBalcao
+                      ? "bg-primary text-primary-foreground border-primary shadow-md"
+                      : "bg-background text-muted-foreground border-border hover:bg-muted"
+                      }`}
+                  >
+                    Balcão
+                  </button>
+                </div>
+              </div>
+
             </div>
 
             {mesasAbertas.length > 0 && (
@@ -1070,7 +1094,7 @@ function GarcomPage() {
             </div>
 
             <h2 className="mb-2 text-2xl font-black text-foreground">
-              Mesa {pedido.numeroMesa} Enviada!
+              {isBalcao ? "Pedido de Balcão Enviado!" : `Mesa ${pedido.numeroMesa} Enviada!`}
             </h2>
             <p className="mb-6 font-semibold text-muted-foreground">
               A comanda foi encaminhada para o caixa com sucesso.

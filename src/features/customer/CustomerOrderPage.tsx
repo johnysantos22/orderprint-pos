@@ -424,6 +424,24 @@ export function CustomerOrderPage() {
     });
   };
 
+  const lidarComMudancaTelefone = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const valorDigitado = event.target.value;
+    const apenasNumeros = valorDigitado.replace(/\D/g, "");
+
+    // Se ele tentar digitar o 12º número, a tela apita o erro na hora e trava o teclado!
+    if (apenasNumeros.length > 11) {
+      setAlerta({
+        titulo: "Limite de Números",
+        mensagem: "O WhatsApp não pode ter mais de 11 números (DDD + 9 dígitos). Verifique se digitou algum número a mais por engano.",
+        tipo: "erro",
+      });
+      return;
+    }
+
+    // Se estiver no tamanho certo, atualiza o texto na tela
+    setTelefone(valorDigitado);
+  };
+
   const conteudoCarrinho = (isModal: boolean) => (
     <section className={`flex flex-col border-primary bg-card overflow-hidden border-2 ${isModal ? "w-full max-w-lg max-h-[90vh] animate-in fade-in zoom-in-95 rounded-2xl shadow-2xl duration-200" : "rounded-xl shadow-[var(--shadow-warm)]"}`}>
       <div className="flex shrink-0 items-center justify-between gap-3 bg-primary px-4 py-3 text-primary-foreground">
@@ -636,6 +654,17 @@ export function CustomerOrderPage() {
       });
       return;
     }
+
+    const numerosTelefone = telefone.replace(/\D/g, "");
+    if (tipoEntrega !== "NO_LOCAL" && numerosTelefone.length > 11) {
+      setAlerta({
+        titulo: "WhatsApp Inválido",
+        mensagem: "Você digitou números a mais no WhatsApp. O formato correto é o DDD + 9 dígitos.",
+        tipo: "erro",
+      });
+      return;
+    }
+
     if (!dadosConferenciaOk) {
       if (formaPagamento === "Dinheiro" && observacoes.trim().length === 0) {
         setAlerta({
@@ -662,7 +691,7 @@ export function CustomerOrderPage() {
       cliente: {
         nome: nome.trim(),
         endereco: endereco.trim(),
-        telefone: tipoEntrega !== "NO_LOCAL" ? telefone.replace(/\D/g, "") : ""
+        telefone: tipoEntrega !== "NO_LOCAL" ? telefone.replace(/\D/g, "").slice(0, 11) : ""
       },
       tipoEntrega,
       pagamento: formaPagamento,
@@ -781,7 +810,7 @@ export function CustomerOrderPage() {
                 <input
                   type="tel"
                   value={telefone}
-                  onChange={(event) => setTelefone(event.target.value)}
+                  onChange={lidarComMudancaTelefone}
                   disabled={tipoEntrega === "NO_LOCAL"}
                   className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10 disabled:opacity-50"
                   placeholder="(DDD) 99999-9999"
