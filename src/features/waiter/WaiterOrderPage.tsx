@@ -901,11 +901,18 @@ function GarcomPage() {
                             {descricaoPizza}
                           </p>
                         )}
-                        {pizza.highlight && (
-                          <p className="mt-2 text-xs font-black uppercase text-primary">
-                            {pizza.highlight}
-                          </p>
-                        )}
+                        <div className="mt-2 space-y-1">
+                          {pizza.highlight && (
+                            <p className="text-xs font-black uppercase text-primary">
+                              {pizza.highlight}
+                            </p>
+                          )}
+                          {!pizza.name.toLowerCase().includes("camarão") && (
+                            <p className="text-xs font-black uppercase text-amber-600">
+                              PROMOÇÃO ESPECIAL: 2 PIZZAS (G) POR R$ 70,00
+                            </p>
+                          )}
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-3 gap-2">

@@ -147,7 +147,7 @@ function CaixaPage() {
   const [mostrarCancelados, setMostrarCancelados] = useState(false);
 
   const [telaAtiva, setTelaAtiva] = useState<"dashboard" | "config" | "mesas">("mesas");
-  const [abaConfig, setAbaConfig] = useState<"estoque" | "senhas" | "loja" | "whatsapp" | "cardapio">("estoque");
+  const [abaConfig, setAbaConfig] = useState<"estoque" | "senhas" | "loja" | "whatsapp" | "cardapio">("cardapio");
 
   const [abaMesas, setAbaMesas] = useState<"abertas" | "finalizadas">("abertas");
 
@@ -1367,6 +1367,13 @@ function CaixaPage() {
                   >
                     <Smartphone size={16} />
                     WhatsApp
+                  </button>
+                  <button
+                    onClick={() => setAbaConfig("cardapio")}
+                    className={`flex whitespace-nowrap items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 text-[10px] sm:text-xs font-black uppercase rounded-lg transition-all shadow-sm ${abaConfig === "cardapio" ? "bg-primary text-white" : "bg-card text-muted-foreground hover:bg-muted border border-border"}`}
+                  >
+                    <Edit3 size={16} />
+                    Cardápio
                   </button>
                 </div>
 
