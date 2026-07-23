@@ -111,6 +111,12 @@ export const pizzas: Pizza[] = [
     prices: { M: 30, G: 40, GG: 50 },
   },
   {
+    id: 44,
+    name: "Frango",
+    description: "(Mussarela, Frango, Tomate, Azeitona e Orégano)",
+    prices: { M: 30, G: 40, GG: 50 },
+  },
+  {
     id: 16,
     name: "Brigadeiro",
     prices: { M: 30, G: 35, GG: 40 },
@@ -142,6 +148,7 @@ export const pasteis: MenuItem[] = [
     price: 10,
   },
   { id: 27, name: "Frango com Cheddar", description: "Acompanha Queijo Mussarela", price: 10 },
+  { id: 45, name: "Frango", description: "Acompanha Queijo Mussarela", price: 10 },
 ];
 
 export const porcoes: MenuItem[] = [{ id: 28, name: "Batata frita (G)", price: 20 }];
