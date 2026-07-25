@@ -76,6 +76,8 @@ interface GarcomDraft extends EstadoPedidoGarcom {
   meiaTamanho: PizzaSize;
   meiaSaborA: string;
   meiaSaborB: string;
+  comboSaborA: string;
+  comboSaborB: string;
 }
 
 const garcomDraftDefault: GarcomDraft = {
@@ -86,6 +88,8 @@ const garcomDraftDefault: GarcomDraft = {
   meiaTamanho: "G",
   meiaSaborA: String(pizzas[0]?.id ?? ""),
   meiaSaborB: String(pizzas[1]?.id ?? ""),
+  comboSaborA: String(pizzas.filter(p => !p.name.toLowerCase().includes("camarão") && !p.name.toLowerCase().includes("atum"))[0]?.id ?? ""),
+  comboSaborB: String(pizzas.filter(p => !p.name.toLowerCase().includes("camarão") && !p.name.toLowerCase().includes("atum"))[1]?.id ?? ""),
 };
 
 const lerGarcomDraft = (): GarcomDraft => {
@@ -139,6 +143,9 @@ function GarcomPage() {
   const [meiaTamanho, setMeiaTamanho] = useState<PizzaSize>(rascunhoInicial.meiaTamanho);
   const [meiaSaborA, setMeiaSaborA] = useState(rascunhoInicial.meiaSaborA);
   const [meiaSaborB, setMeiaSaborB] = useState(rascunhoInicial.meiaSaborB);
+  const [comboSaborA, setComboSaborA] = useState(rascunhoInicial.comboSaborA);
+  const [comboSaborB, setComboSaborB] = useState(rascunhoInicial.comboSaborB);
+
   const [mensagemCarrinho, setMensagemCarrinho] = useState("");
   const [modalSucessoAberto, setModalSucessoAberto] = useState(false);
   const [modalCarrinhoAberto, setModalCarrinhoAberto] = useState(false);
@@ -175,9 +182,11 @@ function GarcomPage() {
       meiaTamanho,
       meiaSaborA,
       meiaSaborB,
+      comboSaborA,
+      comboSaborB,
     };
     localStorage.setItem(GARCOM_DRAFT_KEY, JSON.stringify(draft));
-  }, [meiaSaborA, meiaSaborB, meiaTamanho, pedido]);
+  }, [meiaSaborA, meiaSaborB, meiaTamanho, pedido, comboSaborA, comboSaborB]);
 
   // ESPIÃO DO CARDÁPIO (Para travar botões de itens esgotados)
   useEffect(() => {
@@ -322,6 +331,45 @@ function GarcomPage() {
       tamanho: meiaTamanho,
       precoUnitario: Math.max(precoA, precoB),
       meia: { saborA: saborA.name, saborB: saborB.name },
+    });
+  };
+
+  const adicionarComboPromocional = () => {
+    if (!lojaAberta) {
+      setAlerta({
+        titulo: "Loja Fechada",
+        mensagem: "O sistema está fechado no momento!",
+        tipo: "aviso",
+      });
+      return;
+    }
+    const saborA = pizzas.find((pizza) => String(pizza.id) === comboSaborA);
+    const saborB = pizzas.find((pizza) => String(pizza.id) === comboSaborB);
+
+    if (!saborA || !saborB) {
+      setAlerta({
+        titulo: "Atenção",
+        mensagem: "Escolha os dois sabores para o combo.",
+        tipo: "aviso",
+      });
+      return;
+    }
+
+    if (esgotados.includes(saborA.id) || esgotados.includes(saborB.id)) {
+      setAlerta({
+        titulo: "Sabor Esgotado",
+        mensagem: "Um dos sabores escolhidos para o combo está ESGOTADO!",
+        tipo: "erro",
+      });
+      return;
+    }
+
+    adicionarItem({
+      key: `combo-70-${saborA.id}-${saborB.id}`,
+      id: 999, // ID Fixo para combos
+      nome: `Combo 2 Pizzas (G): ${saborA.name} / ${saborB.name}`,
+      categoria: "pizza",
+      precoUnitario: 70,
     });
   };
 
@@ -907,11 +955,6 @@ function GarcomPage() {
                               {pizza.highlight}
                             </p>
                           )}
-                          {!pizza.name.toLowerCase().includes("camarão") && (
-                            <p className="text-xs font-black uppercase text-amber-600">
-                              PROMOÇÃO ESPECIAL: 2 PIZZAS (G) POR R$ 70,00
-                            </p>
-                          )}
                         </div>
                       </div>
 
@@ -946,6 +989,50 @@ function GarcomPage() {
                     </article>
                   );
                 })}
+              </div>
+            )}
+
+            {tab === "pizzas" && (
+              <div className="mt-4 rounded-lg border-2 border-dashed border-amber-500/45 bg-amber-50/20 p-4">
+                <div className="mb-3">
+                  <h2 className="text-lg font-black text-amber-800">PROMOÇÃO: 2 PIZZAS (G) POR R$ 70,00</h2>
+                  <p className="text-sm font-medium text-amber-700/80">
+                    Escolha dois sabores (exceto Camarão e Atum).
+                  </p>
+                </div>
+
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto] items-center">
+                  <select
+                    value={comboSaborA}
+                    onChange={(event) => setComboSaborA(event.target.value)}
+                    className="h-11 rounded-lg border border-border bg-card px-3 text-sm font-bold outline-none focus:border-primary"
+                  >
+                    {pizzas.filter(p => !p.name.toLowerCase().includes("camarão") && !p.name.toLowerCase().includes("atum")).map((pizza) => (
+                      <option
+                        key={pizza.id}
+                        value={pizza.id}
+                        disabled={esgotados.includes(pizza.id)}
+                        className={esgotados.includes(pizza.id) ? "text-red-600 font-bold" : ""}
+                      >
+                        {pizza.name} {esgotados.includes(pizza.id) ? "(ESGOTADO)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={comboSaborB}
+                    onChange={(event) => setComboSaborB(event.target.value)}
+                    className="h-11 rounded-lg border border-border bg-card px-3 text-sm font-bold outline-none focus:border-primary"
+                  >
+                    {pizzas.filter(p => !p.name.toLowerCase().includes("camarão") && !p.name.toLowerCase().includes("atum")).map((pizza) => (
+                      <option key={pizza.id} value={pizza.id} disabled={esgotados.includes(pizza.id)} className={esgotados.includes(pizza.id) ? "text-red-600 font-bold" : ""}>
+                        {pizza.name} {esgotados.includes(pizza.id) ? "(ESGOTADO)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={adicionarComboPromocional} className="flex h-11 items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 text-sm font-black uppercase text-white transition hover:bg-amber-600">
+                    <Plus size={17} aria-hidden="true" /> Add Combo
+                  </button>
+                </div>
               </div>
             )}
 
