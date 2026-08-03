@@ -1,4 +1,4 @@
-const PRINT_BRIDGE_URL = import.meta.env.VITE_IMPRESSORA_URL ?? "http://127.0.0.1:3001";
+const PRINT_BRIDGE_URL = import.meta.env.VITE_IMPRESSORA_URL;
 
 interface PrintResponse {
   ok?: boolean;
