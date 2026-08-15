@@ -178,30 +178,6 @@ export function CustomerOrderPage() {
 
   const mensagemTimeoutRef = useRef<number | null>(null);
 
-  // CÁLCULO DINÂMICO DOS 2 PASTÉIS
-  // 👇 CÁLCULO DINÂMICO INTELIGENTE DOS 2 PASTÉIS 👇
-  const valorMinimoEntrega = useMemo(() => {
-    if (!pasteis || pasteis.length === 0) return 20; // Garantia contra falhas
-
-    let precoBase = Number(pasteis[0].price);
-
-    // 1. Vasculha TODOS os pastéis em busca dos valores que você editou no Caixa
-    const precosEditados = pasteis
-      .map(pastel => menuOverrides[String(pastel.id)]?.preco)
-      .filter(preco => preco !== undefined && Number(preco) > 0)
-      .map(Number);
-
-    // 2. Se o sistema achou algum pastel atualizado (ex: 15 reais), usa ele como a nova regra
-    if (precosEditados.length > 0) {
-      // Pega o maior preço editado para garantir que a entrega sempre cubra a viagem
-      precoBase = Math.max(...precosEditados);
-    }
-
-    // 3. Multiplica o valor atualizado por 2
-    return precoBase * 2;
-  }, [menuOverrides]);
-  // 👆 FIM DO CÁLCULO DINÂMICO 👆
-
   const subtotal = useMemo(
     () => carrinho.reduce((total, item) => total + item.precoUnitario * item.quantidade, 0),
     [carrinho],
@@ -211,14 +187,13 @@ export function CustomerOrderPage() {
   const total = subtotal + taxaEntrega;
   const enderecoObrigatorio = tipoEntrega === "ENTREGAR";
 
-  const atendeValorMinimoEntrega = !enderecoObrigatorio || subtotal >= valorMinimoEntrega;
+  const atendeValorMinimoEntrega = true; // Removida a lógica de valor mínimo
 
   const dadosConferenciaOk =
     carrinho.length > 0 &&
     nome.trim().length > 0 &&
     (tipoEntrega === "NO_LOCAL" || telefone.replace(/\D/g, "").length >= 10) &&
     (!enderecoObrigatorio || endereco.trim().length > 0) &&
-    (formaPagamento !== "Dinheiro" || observacoes.trim().length > 0) &&
     atendeValorMinimoEntrega;
 
   useEffect(() => {
@@ -353,15 +328,6 @@ export function CustomerOrderPage() {
   };
 
   const abrirWhatsAppComprovante = () => {
-    if (enderecoObrigatorio && subtotal < valorMinimoEntrega) {
-      setAlerta({
-        titulo: "Pedido Mínimo",
-        mensagem: "O pedido mínimo para entrega é o equivalente a 2 pastéis. Adicione mais algum item ao carrinho!",
-        tipo: "aviso",
-      });
-      return;
-    }
-
     if (!dadosConferenciaOk) {
       setAlerta({
         titulo: "Atenção",
@@ -653,7 +619,7 @@ export function CustomerOrderPage() {
             <button
               type="button"
               onClick={abrirWhatsAppComprovante}
-              disabled={enderecoObrigatorio && !atendeValorMinimoEntrega}
+              disabled={!dadosConferenciaOk}
               className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#25D366] px-3 text-sm font-black uppercase text-white transition hover:bg-[#1fb458] disabled:cursor-not-allowed disabled:opacity-45 grayscale-0 disabled:grayscale"
             >
               <MessageCircle size={17} aria-hidden="true" />
@@ -692,21 +658,6 @@ export function CustomerOrderPage() {
             <span>{formatCurrency(total)}</span>
           </div>
         </div>
-        {/* 👇 AVISO DOS 2 PASTÉIS 👇 */}
-        {enderecoObrigatorio && !atendeValorMinimoEntrega && (
-          <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-blue-950">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 text-blue-600">
-                <AlertTriangle size={18} aria-hidden="true" />
-              </div>
-              <div>
-                <p className="text-sm font-black uppercase text-blue-800">Pedido Mínimo</p>
-                <p className="text-xs font-semibold text-blue-700">Para entregas, o pedido mínimo é o equivalente a <strong>2 pastéis</strong>.</p>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* 👆 FIM DO AVISO 👆 */}
       </div>
 
 
@@ -747,14 +698,6 @@ export function CustomerOrderPage() {
       setAlerta({
         titulo: "Carrinho Vazio",
         mensagem: "Adicione pelo menos um item ao carrinho.",
-        tipo: "aviso",
-      });
-      return;
-    }
-    if (enderecoObrigatorio && !atendeValorMinimoEntrega) {
-      setAlerta({
-        titulo: "Pedido Mínimo",
-        mensagem: "O pedido mínimo para entrega é o equivalente a 2 pastéis. Por favor, adicione mais itens ao seu carrinho.",
         tipo: "aviso",
       });
       return;
