@@ -163,6 +163,7 @@ export const bebidas: MenuItem[] = [
   { id: 34, name: "Coca-Cola 2 lt", price: 15.0 },
   { id: 35, name: "Pepsi 2 lt", price: 15.0 },
   { id: 36, name: "Guaraná 2 lt", price: 15.0 },
+  { id: 47, name: "Refri Garrafinha de 250ml", price: 5.0 }
 ];
 
 export const sucos: MenuItem[] = [
